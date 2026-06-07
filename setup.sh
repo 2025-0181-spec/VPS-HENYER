@@ -1,4 +1,3 @@
-cat > /home/setup.sh << 'ENDOFFILE'
 #!/usr/bin/env bash
 # ============================================================
 #  VPS-HENYER — Instalador Completo Corregido
@@ -388,5 +387,3 @@ main() {
 }
 
 main "$@"
-ENDOFFILE
-echo "setup.sh OK"
