@@ -2,17 +2,17 @@ cat > /home/setup.sh << 'ENDOFFILE'
 #!/usr/bin/env bash
 # ============================================================
 #  VPS-HENYER — Instalador Completo Corregido
-#  Uso: curl -sL https://raw.githubusercontent.com/2025-01-0181-spec/vps-henyer/main/setup.sh | bash
+#  Uso: curl -sL https://raw.githubusercontent.com/2025-01-0181-spec/VPS-HENYER/main/setup.sh | bash
 # ============================================================
 
 set -euo pipefail
 
 # Constantes con el usuario exacto y repositorio en minúsculas
-readonly REPO_RAW="https://raw.githubusercontent.com/2025-01-0181-spec/vps-henyer/main"
-readonly INSTALL_DIR="/etc/vps-henyer"
-readonly SCRIPTS_DIR="/etc/vps-henyer/scripts"
+readonly REPO_RAW="https://raw.githubusercontent.com/2025-01-0181-spec/VPS-HENYER/main"
+readonly INSTALL_DIR="/etc/VPS-HENYER"
+readonly SCRIPTS_DIR="/etc/VPS-HENYER/scripts"
 readonly BIN_PATH="/usr/local/bin/vps"
-readonly LOG_DIR="/var/log/vps-henyer"
+readonly LOG_DIR="/var/log/VPS-HENYER"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 CYAN='\033[0;36m'; BOLD='\033[1m'; RESET='\033[0m'
@@ -327,7 +327,7 @@ save_version() {
 create_global_command() {
     cat > "$BIN_PATH" << 'CMD'
 #!/usr/bin/env bash
-exec bash /etc/vps-henyer/menu.sh "$@"
+exec bash /etc/VPS-HENYER/menu.sh "$@"
 CMD
     chmod +x "$BIN_PATH"
     ln -sf "$BIN_PATH" /usr/local/bin/menu
