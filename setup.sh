@@ -1,3 +1,4 @@
+cat > /home/claude/setup.sh << 'ENDOFFILE'
 #!/usr/bin/env bash
 # ============================================================
 #  VPS-HENYER — Instalador Completo
@@ -388,3 +389,5 @@ main() {
 }
 
 main "$@"
+ENDOFFILE
+echo "setup.sh OK"
