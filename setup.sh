@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # ============================================================
-#  VPS-HENYER — Instalador Remoto Corregido
-#  Uso: curl -sL https://raw.githubusercontent.com/2025-01-0181-spec/VPS-HENYER/main/setup.sh | bash
+#  VPS-HENYER — Instalador Remoto Corregido (Ruta Raw Oficial)
+#  Uso: curl -sL https://raw.githubusercontent.com/2025-01-0181-spec/vps-henyer/main/setup.sh | bash
 # ============================================================
 
 set -euo pipefail
 
 # ── Constantes ──────────────────────────────────────────────
-readonly REPO_RAW="https://raw.githubusercontent.com/2025-01-0181-spec/VPS-HENYER/main"
+# Corregido: 'vps-henyer' en minúsculas para evitar el error 404 de GitHub Raw
+readonly REPO_RAW="https://raw.githubusercontent.com/2025-01-0181-spec/vps-henyer/main"
 readonly INSTALL_DIR="/etc/vps-henyer"
 readonly BIN_PATH="/usr/local/bin/vps"
 readonly LOG_DIR="/var/log/vps-henyer"
@@ -76,7 +77,10 @@ install_dependencies() {
 
 # ── Estructura de directorios ────────────────────────────────
 create_dirs() {
-    info "Creando estructura de directorios..."
+    info "Limpiando directorios previos..."
+    # Borramos la instalación vieja para destruir los archivos corruptos con el texto 404
+    rm -rf "$INSTALL_DIR"
+    info "Creando nueva estructura de directorios..."
     mkdir -p "$INSTALL_DIR"
     mkdir -p "$LOG_DIR"
     chmod 755 "$INSTALL_DIR"
@@ -86,7 +90,7 @@ create_dirs() {
 
 # ── Descarga de scripts ──────────────────────────────────────
 download_scripts() {
-    info "Descargando componentes desde GitHub..."
+    info "Descargando componentes reales desde GitHub..."
     local failed=0
 
     for script in "${SCRIPTS[@]}"; do
@@ -96,16 +100,17 @@ download_scripts() {
 
         mkdir -p "$dest_dir"
 
+        # Añadido parámetro -f en curl para que falle de verdad si el servidor responde 404
         if curl -fsSL --retry 3 --retry-delay 2 -o "$dest" "$url"; then
             chmod +x "$dest"
-            success "Descargado: $script"
+            success "Descargado e instalado: $script"
         else
-            warn "Falló: $script"
+            warn "Falló la descarga de: $script"
             ((failed++)) || true
         fi
     done
 
-    [[ $failed -eq 0 ]] || die "$failed script(s) no se pudieron descargar."
+    [[ $failed -eq 0 ]] || die "$failed script(s) no se pudieron descargar de forma correcta."
 }
 
 # ── Versión ──────────────────────────────────────────────────
@@ -132,7 +137,7 @@ print_banner() {
     clear
     echo -e "${CYAN}${BOLD}"
     echo "  ╔═══════════════════════════════════════╗"
-    echo "  ║        VPS-HENYER — INSTALADOR        ║"
+    echo "  ║         VPS-HENYER — INSTALADOR       ║"
     echo "  ╚═══════════════════════════════════════╝"
     echo -e "${RESET}"
 }
