@@ -1,4 +1,4 @@
-cat > /home/claude/setup.sh << 'ENDOFFILE'
+cat > /home/setup.sh << 'ENDOFFILE'
 #!/usr/bin/env bash
 # ============================================================
 #  VPS-HENYER — Instalador Completo
