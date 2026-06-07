@@ -7,11 +7,13 @@ cat > /home/setup.sh << 'ENDOFFILE'
 
 set -euo pipefail
 
-readonly REPO_RAW="https://raw.githubusercontent.com/2025-0181-spec/VPS-HENYER/main"
+# ── Constantes ──────────────────────────────────────────────
+readonly REPO_RAW="https://raw.githubusercontent.com/2025-01-0181-spec/vps-henyer/main"
 readonly INSTALL_DIR="/etc/vps-henyer"
 readonly SCRIPTS_DIR="/etc/vps-henyer/scripts"
 readonly BIN_PATH="/usr/local/bin/vps"
 readonly LOG_DIR="/var/log/vps-henyer"
+readonly SCRIPTS=("menu.sh" "protocols.sh")
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 CYAN='\033[0;36m'; BOLD='\033[1m'; RESET='\033[0m'
