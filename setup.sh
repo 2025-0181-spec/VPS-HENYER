@@ -8,7 +8,7 @@ set -euo pipefail
 
 # ── Constantes ──────────────────────────────────────────────
 # Corregido: 'vps-henyer' en minúsculas para evitar el error 404 de GitHub Raw
-readonly REPO_RAW="https://raw.githubusercontent.com/2025-01-0181-spec/vps-henyer/main"
+readonly REPO_RAW="https://raw.githubusercontent.com/2025-0181-spec/VPS-HENYER/main"
 readonly INSTALL_DIR="/etc/vps-henyer"
 readonly BIN_PATH="/usr/local/bin/vps"
 readonly LOG_DIR="/var/log/vps-henyer"
