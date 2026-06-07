@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ============================================================
-#  VPS-HENYER — Instalador Remoto
-#  Uso: curl -sL https://raw.githubusercontent.com/TU_USUARIO/vps-henyer/main/setup.sh | bash
+#  VPS-HENYER — Instalador Remoto Corregido
+#  Uso: curl -sL https://raw.githubusercontent.com/2025-01-0181-spec/VPS-HENYER/main/setup.sh | bash
 # ============================================================
 
 set -euo pipefail
@@ -77,10 +77,10 @@ install_dependencies() {
 # ── Estructura de directorios ────────────────────────────────
 create_dirs() {
     info "Creando estructura de directorios..."
-    mkdir -p "$INSTALL_DIR/scripts"
+    mkdir -p "$INSTALL_DIR"
     mkdir -p "$LOG_DIR"
-    chmod 750 "$INSTALL_DIR"
-    chmod 750 "$LOG_DIR"
+    chmod 755 "$INSTALL_DIR"
+    chmod 755 "$LOG_DIR"
     success "Directorios creados en $INSTALL_DIR"
 }
 
@@ -116,14 +116,15 @@ save_version() {
     success "Versión instalada: $remote_version"
 }
 
-# ── Acceso global: comando 'vps' ─────────────────────────────
+# ── Acceso global: comando 'vps' y 'menu' ────────────────────
 create_global_command() {
     cat > "$BIN_PATH" << 'GLOBALCMD'
 #!/usr/bin/env bash
 exec bash /etc/vps-henyer/menu.sh "$@"
 GLOBALCMD
     chmod +x "$BIN_PATH"
-    success "Comando global creado: 'vps' (ejecuta desde cualquier lugar)"
+    ln -sf "$BIN_PATH" /usr/local/bin/menu
+    success "Comandos globales creados: 'vps' y 'menu'"
 }
 
 # ── Banner de bienvenida ─────────────────────────────────────
@@ -131,7 +132,7 @@ print_banner() {
     clear
     echo -e "${CYAN}${BOLD}"
     echo "  ╔═══════════════════════════════════════╗"
-    echo "  ║       VPS-HENYER — INSTALADOR         ║"
+    echo "  ║        VPS-HENYER — INSTALADOR        ║"
     echo "  ╚═══════════════════════════════════════╝"
     echo -e "${RESET}"
 }
@@ -140,11 +141,11 @@ print_success() {
     echo ""
     echo -e "${GREEN}${BOLD}  ✔  Instalación completada exitosamente${RESET}"
     echo ""
-    echo -e "  ${BOLD}Uso:${RESET} escribe ${CYAN}vps${RESET} en tu terminal"
+    echo -e "  ${BOLD}Uso:${RESET} escribe ${CYAN}vps${RESET} o ${CYAN}menu${RESET} en tu terminal"
     echo -e "  ${BOLD}Directorio:${RESET} $INSTALL_DIR"
     echo -e "  ${BOLD}Logs:${RESET} $LOG_DIR"
     echo ""
-    echo -e "  Para iniciar ahora: ${YELLOW}vps${RESET}"
+    echo -e "  Para iniciar ahora: ${YELLOW}menu${RESET}"
     echo ""
 }
 
