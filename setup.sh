@@ -7,7 +7,7 @@
 set -euo pipefail
 
 # Constantes con el usuario exacto y repositorio en minúsculas
-readonly REPO_RAW="https://raw.githubusercontent.com/2025-01-0181-spec/vps-henyer/main"
+readonly REPO_RAW="https://raw.githubusercontent.com/2025-0181-specc/vps-henyer/main"
 readonly INSTALL_DIR="/etc/vps-henyer"
 readonly SCRIPTS_DIR="/etc/vps-henyer/scripts"
 readonly BIN_PATH="/usr/local/bin/vps"
