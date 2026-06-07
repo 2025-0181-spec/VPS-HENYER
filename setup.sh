@@ -1,19 +1,18 @@
 cat > /home/setup.sh << 'ENDOFFILE'
 #!/usr/bin/env bash
 # ============================================================
-#  VPS-HENYER — Instalador Completo
-#  Uso: curl -sL https://raw.githubusercontent.com/2025-0181-spec/VPS-HENYER/main/setup.sh | bash
+#  VPS-HENYER — Instalador Completo Corregido
+#  Uso: curl -sL https://raw.githubusercontent.com/2025-01-0181-spec/vps-henyer/main/setup.sh | bash
 # ============================================================
 
 set -euo pipefail
 
-# ── Constantes ──────────────────────────────────────────────
+# Constantes con el usuario exacto y repositorio en minúsculas
 readonly REPO_RAW="https://raw.githubusercontent.com/2025-01-0181-spec/vps-henyer/main"
 readonly INSTALL_DIR="/etc/vps-henyer"
 readonly SCRIPTS_DIR="/etc/vps-henyer/scripts"
 readonly BIN_PATH="/usr/local/bin/vps"
 readonly LOG_DIR="/var/log/vps-henyer"
-readonly SCRIPTS=("menu.sh" "protocols.sh")
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 CYAN='\033[0;36m'; BOLD='\033[1m'; RESET='\033[0m'
@@ -41,7 +40,7 @@ check_os() {
             *) warn "Sistema no probado: $PRETTY_NAME — continuando de todas formas." ;;
         esac
     else
-        warn "No se pudo detectar el SO. Continuando..."
+        warn "No se pudo detectar el SO. Continuing..."
     fi
 }
 
@@ -61,7 +60,7 @@ install_dependencies() {
     if [[ ${#to_install[@]} -gt 0 ]]; then
         apt-get update -qq
         apt-get install -y -qq "${to_install[@]}" || warn "Algunas dependencias fallaron: ${to_install[*]}"
-        success "Dependencias instaladas: ${to_install[*]}"
+        success "Dependencias installed: ${to_install[*]}"
     else
         success "Todas las dependencias ya están instaladas."
     fi
@@ -79,7 +78,7 @@ create_dirs() {
 }
 
 download_scripts() {
-    info "Descargando componentes desde GitHub..."
+    info "Descargando componentes reales desde GitHub..."
     local failed=0
 
     # Archivos raíz
@@ -98,11 +97,12 @@ download_scripts() {
 
     for remote in "${!root_files[@]}"; do
         local dest="${root_files[$remote]}"
-        if curl -fsSL --retry 3 --retry-delay 2 -o "$dest" "$REPO_RAW/$remote" 2>/dev/null; then
+        if curl -fsSL --retry 3 --retry-delay 2 -o "$dest" "$REPO_RAW/$remote"; then
             chmod +x "$dest" 2>/dev/null || true
-            success "Descargado: $remote"
+            success "Descargado con éxito: $remote"
         else
-            warn "No disponible en repo: $remote (omitido)"
+            warn "No disponible o error en repo: $remote (omitido)"
+            ((failed++)) || true
         fi
     done
 
@@ -113,19 +113,17 @@ download_scripts() {
             success "Descargado: $remote"
         else
             warn "No disponible en repo: $remote (se generará localmente)"
-            ((failed++)) || true
         fi
     done
 
-    return 0
+    [[ $failed -eq 0 ]] || die "No se pudieron descargar los componentes esenciales de raíz."
 }
 
-# Si los scripts no están en GitHub, los genera localmente
 generate_missing_scripts() {
     # ── tools.sh ────────────────────────────────────────────
     if [[ ! -s "$SCRIPTS_DIR/tools.sh" ]]; then
         info "Generando tools.sh localmente..."
-        curl -fsSL --retry 3 "https://raw.githubusercontent.com/2025-0181-spec/VPS-HENYER/main/scripts/tools.sh" \
+        curl -fsSL --retry 3 "${REPO_RAW}/scripts/tools.sh" \
             -o "$SCRIPTS_DIR/tools.sh" 2>/dev/null || \
         cat > "$SCRIPTS_DIR/tools.sh" << 'TOOLS'
 #!/usr/bin/env bash
@@ -182,7 +180,7 @@ handle_speedtest(){
 
 handle_dns(){
     clear; echo -e "\n  ${W}${BOLD}── DNS Personalizado ────────────────────────────────${NC}\n"
-    local cur; cur=$(grep "^nameserver" /etc/resolv.conf 2>/dev/null|awk '{print $2}'|tr '\n' ' ')
+    local cur; cur=$(grep "^nameserver" /etc/resolv.conf 2>/dev/null|grep -v "127.0.0.53"|awk '{print $2}'|tr '\n' ' ')
     info "DNS actual: ${W}${cur:-ninguno}${NC}"; echo ""
     echo -e "  ${W}[1]${NC} Google (8.8.8.8)\n  ${W}[2]${NC} Cloudflare (1.1.1.1)\n  ${W}[3]${NC} OpenDNS\n  ${W}[4]${NC} Manual\n  ${W}[5]${NC} Restaurar\n  ${DIM}[0]${NC} Volver"
     read -r o; local d1="" d2=""
@@ -225,7 +223,7 @@ TOOLS
     # ── security.sh ─────────────────────────────────────────
     if [[ ! -s "$SCRIPTS_DIR/security.sh" ]]; then
         info "Generando security.sh localmente..."
-        curl -fsSL --retry 3 "https://raw.githubusercontent.com/2025-0181-spec/VPS-HENYER/main/scripts/security.sh" \
+        curl -fsSL --retry 3 "${REPO_RAW}/scripts/security.sh" \
             -o "$SCRIPTS_DIR/security.sh" 2>/dev/null || \
         cat > "$SCRIPTS_DIR/security.sh" << 'SECURITY'
 #!/usr/bin/env bash
@@ -310,7 +308,6 @@ SECURITY
         success "security.sh generado."
     fi
 
-    # ── scripts/protocols.sh ────────────────────────────────
     if [[ ! -s "$SCRIPTS_DIR/protocols.sh" ]]; then
         info "Copiando protocols.sh a scripts/..."
         [[ -f "$INSTALL_DIR/protocols.sh" ]] && \
@@ -362,7 +359,7 @@ print_success() {
 verify_install() {
     info "Verificando instalación..."
     local ok=true
-    local files=("$INSTALL_DIR/menu.sh" "$SCRIPTS_DIR/protocols.sh" "$SCRIPTS_DIR/tools.sh" "$SCRIPTS_DIR/security.sh")
+    local files=("$INSTALL_DIR/menu.sh" "$INSTALL_DIR/protocols.sh")
     for f in "${files[@]}"; do
         if [[ -f "$f" && -s "$f" ]]; then
             success "OK: $f"
@@ -371,7 +368,7 @@ verify_install() {
             ok=false
         fi
     done
-    $ok && success "Todos los módulos presentes." || warn "Algunos módulos faltan — el menú puede funcionar parcialmente."
+    $ok && success "Todos los módulos base presentes." || warn "Algunos módulos faltan."
 }
 
 main() {
