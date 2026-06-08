@@ -80,7 +80,7 @@ download_scripts() {
     info "Descargando componentes reales desde GitHub..."
     local failed=0
     # Tu token clásico de GitHub para repositorios privados
-    local token="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"
+    local token="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"
 
     # Archivos raíz
     declare -A root_files=(
