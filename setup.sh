@@ -87,11 +87,10 @@ download_scripts() {
         ["version.txt"]="$INSTALL_DIR/version.txt"
     )
 
-    # Archivos en /scripts
-    declare -A script_files=(
-        ["scripts/protocols.sh"]="$SCRIPTS_DIR/protocols.sh"
-        ["scripts/tools.sh"]="$SCRIPTS_DIR/tools.sh"
-        ["scripts/security.sh"]="$SCRIPTS_DIR/security.sh"
+    # Archivos raíz
+    declare -A root_files=(
+        ["menu.sh"]="$INSTALL_DIR/menu.sh"
+        ["version.txt"]="$INSTALL_DIR/version.txt"
     )
 
     for remote in "${!root_files[@]}"; do
