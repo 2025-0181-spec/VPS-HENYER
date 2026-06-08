@@ -79,6 +79,8 @@ create_dirs() {
 download_scripts() {
     info "Descargando componentes reales desde GitHub..."
     local failed=0
+    # Tu token clásico de GitHub para repositorios privados
+    local token="TU_TOKEN_AQUÍ"
 
     # Archivos raíz
     declare -A root_files=(
@@ -92,10 +94,11 @@ download_scripts() {
         ["scripts/tools.sh"]="$SCRIPTS_DIR/tools.sh"
         ["scripts/security.sh"]="$SCRIPTS_DIR/security.sh"
     )
-    
+
     for remote in "${!root_files[@]}"; do
         local dest="${root_files[$remote]}"
-        if curl -fsSL --retry 3 --retry-delay 2 -o "$dest" "$REPO_RAW/$remote"; then
+        # Se añade la cabecera de autenticación con el token
+        if curl -fsSL -H "Authorization: token $token" --retry 3 --retry-delay 2 -o "$dest" "$REPO_RAW/$remote"; then
             chmod +x "$dest" 2>/dev/null || true
             success "Descargado con éxito: $remote"
         else
@@ -106,7 +109,8 @@ download_scripts() {
 
     for remote in "${!script_files[@]}"; do
         local dest="${script_files[$remote]}"
-        if curl -fsSL --retry 3 --retry-delay 2 -o "$dest" "$REPO_RAW/$remote" 2>/dev/null; then
+        # Se añade la cabecera de autenticación con el token
+        if curl -fsSL -H "Authorization: token $token" --retry 3 --retry-delay 2 -o "$dest" "$REPO_RAW/$remote" 2>/dev/null; then
             chmod +x "$dest"
             success "Descargado: $remote"
         else
