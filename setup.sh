@@ -357,7 +357,7 @@ print_success() {
 verify_install() {
     info "Verificando instalación..."
     local ok=true
-    local files=("$INSTALL_DIR/menu.sh" "$INSTALL_DIR/protocols.sh")
+    local files=("$INSTALL_DIR/menu.sh" "$SCRIPTS_DIR/protocols.sh")
     for f in "${files[@]}"; do
         if [[ -f "$f" && -s "$f" ]]; then
             success "OK: $f"
