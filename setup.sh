@@ -79,8 +79,6 @@ create_dirs() {
 download_scripts() {
     info "Descargando componentes reales desde GitHub..."
     local failed=0
-    # Tu token clásico de GitHub para repositorios privados
-    local token="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"
 
     # Archivos raíz
     declare -A root_files=(
@@ -97,8 +95,8 @@ download_scripts() {
 
     for remote in "${!root_files[@]}"; do
         local dest="${root_files[$remote]}"
-        # Se añade la cabecera de autenticación con el token
-        if curl -fsSL -H "Authorization: token $token" --retry 3 --retry-delay 2 -o "$dest" "$REPO_RAW/$remote"; then
+        # Se removió la cabecera del token para acceso público directo
+        if curl -fsSL --retry 3 --retry-delay 2 -o "$dest" "$REPO_RAW/$remote"; then
             chmod +x "$dest" 2>/dev/null || true
             success "Descargado con éxito: $remote"
         else
@@ -109,8 +107,8 @@ download_scripts() {
 
     for remote in "${!script_files[@]}"; do
         local dest="${script_files[$remote]}"
-        # Se añade la cabecera de autenticación con el token
-        if curl -fsSL -H "Authorization: token $token" --retry 3 --retry-delay 2 -o "$dest" "$REPO_RAW/$remote" 2>/dev/null; then
+        # Se removió la cabecera del token para acceso público directo
+        if curl -fsSL --retry 3 --retry-delay 2 -o "$dest" "$REPO_RAW/$remote" 2>/dev/null; then
             chmod +x "$dest"
             success "Descargado: $remote"
         else
@@ -119,6 +117,14 @@ download_scripts() {
     done
 
     [[ $failed -eq 0 ]] || die "No se pudieron descargar los componentes esenciales de raíz."
+}
+
+save_version() {
+    local ver
+    # Descarga pública directa sin cabeceras de autorización
+    ver=$(curl -fsSL --max-time 5 "$REPO_RAW/version.txt" 2>/dev/null || echo "1.0.0")
+    echo "$ver" > "$INSTALL_DIR/version.txt"
+    success "Versión instalada: $ver"
 }
 
 generate_missing_scripts() {
