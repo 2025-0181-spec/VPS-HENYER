@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ============================================================
 #  vps-henyer — Instalador Completo Corregido
-#  Uso: curl -sL https://raw.githubusercontent.com/2025-01-0181-spec/vps-henyer/main/setup.sh | bash
+#  Uso: curl -sL https://raw.githubusercontent.com/2025-0181-spec/vps-henyer/main/setup.sh | bash
 # ============================================================
 
 set -euo pipefail
