@@ -379,6 +379,197 @@ verify_install() {
     $ok && success "Todos los módulos base presentes." || warn "Algunos módulos faltan."
 }
 
+
+configure_ssh_compatibility() {
+    info "Configurando SSH para compatibilidad con clientes móviles (Ubuntu 24)..."
+
+    local cfg="/etc/ssh/sshd_config"
+    local marker="# VPS-HENYER — Compatibilidad clientes móviles"
+
+    # Evitar duplicados si se reinstala
+    if grep -q "$marker" "$cfg" 2>/dev/null; then
+        info "Compatibilidad SSH ya configurada. Omitiendo."
+        return 0
+    fi
+
+    cat >> "$cfg" << 'SSHCOMPAT'
+
+# VPS-HENYER — Compatibilidad clientes móviles
+# (HTTP Custom, HTTP Injector, NapsternetV — Ubuntu 24 / OpenSSH 9+)
+KexAlgorithms +diffie-hellman-group14-sha1,diffie-hellman-group-exchange-sha1
+PubkeyAcceptedAlgorithms +ssh-rsa
+HostKeyAlgorithms +ssh-rsa
+SSHCOMPAT
+
+    if sshd -t 2>/dev/null; then
+        systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || true
+        success "SSH recargado con compatibilidad para clientes móviles."
+    else
+        # Si algo falla, remover las líneas que agregamos para no romper SSH
+        sed -i "/$marker/,+4d" "$cfg"
+        warn "No se pudo aplicar compatibilidad SSH. Config revertida."
+    fi
+}
+
+configure_proxy_http() {
+    info "Configurando proxy HTTP para HTTP Custom / HTTP Injector..."
+
+    local proxy_dir="/etc/vps-henyer"
+    local proxy_script="$proxy_dir/http_proxy.py"
+    local svc="/etc/systemd/system/vps-http-proxy.service"
+    local ssh_port
+    ssh_port=$(grep -iE "^Port " /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}' | head -1 || echo "22")
+
+    mkdir -p "$proxy_dir"
+
+    # Abrir puerto 8880 en UFW si está activo
+    if command -v ufw &>/dev/null && ufw status 2>/dev/null | grep -q "active"; then
+        ufw allow 8880/tcp > /dev/null 2>&1 || true
+        success "UFW: puerto 8880 abierto."
+    fi
+
+    # Escribir el proxy Python con soporte CONNECT + WebSocket
+    cat > "$proxy_script" << PYEOF
+#!/usr/bin/env python3
+"""
+VPS-HENYER — Proxy HTTP/WebSocket para SSH
+Soporta: CONNECT, WebSocket (GET+Upgrade), HTTP generico
+Compatible: HTTP Custom, HTTP Injector, NapsternetV
+"""
+import socket, threading, select, sys, datetime
+
+LISTEN_PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8880
+SSH_HOST    = "127.0.0.1"
+SSH_PORT    = int(sys.argv[2]) if len(sys.argv) > 2 else SSH_DEFAULT
+BUFFER      = 65536
+
+def log(msg):
+    print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
+
+def bridge(src, dst):
+    try:
+        while True:
+            r, _, _ = select.select([src, dst], [], [], 120)
+            if not r:
+                break
+            for s in r:
+                try:
+                    data = s.recv(BUFFER)
+                except:
+                    return
+                if not data:
+                    return
+                other = dst if s is src else src
+                try:
+                    other.sendall(data)
+                except:
+                    return
+    except:
+        pass
+    finally:
+        for s in (src, dst):
+            try: s.close()
+            except: pass
+
+def handle_client(client):
+    client.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+    try:
+        raw = b""
+        while b"\r\n\r\n" not in raw:
+            chunk = client.recv(BUFFER)
+            if not chunk:
+                return
+            raw += chunk
+            if len(raw) > 65536:
+                return
+
+        header_part = raw[:raw.find(b"\r\n\r\n")].decode("utf-8", errors="ignore")
+        first_line  = header_part.split("\r\n")[0] if header_part else ""
+        is_websocket = "upgrade: websocket" in header_part.lower()
+        is_connect   = first_line.upper().startswith("CONNECT")
+
+        ssh = socket.create_connection((SSH_HOST, SSH_PORT), timeout=10)
+        ssh.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+
+        if is_connect:
+            client.sendall(b"HTTP/1.1 200 Connection Established\r\nProxy-agent: VPS-HENYER\r\n\r\n")
+            log(f"[CONNECT] -> SSH:{SSH_PORT}")
+        elif is_websocket:
+            client.sendall(
+                b"HTTP/1.1 101 Switching Protocols\r\n"
+                b"Upgrade: websocket\r\n"
+                b"Connection: Upgrade\r\n"
+                b"\r\n"
+            )
+            log(f"[WS] -> SSH:{SSH_PORT}")
+        else:
+            client.sendall(b"HTTP/1.1 200 OK\r\nProxy-agent: VPS-HENYER\r\n\r\n")
+            log(f"[HTTP] {first_line[:60]} -> SSH:{SSH_PORT}")
+
+        tail = raw[raw.find(b"\r\n\r\n") + 4:]
+        if tail:
+            ssh.sendall(tail)
+
+        threading.Thread(target=bridge, args=(client, ssh), daemon=True).start()
+
+    except Exception as e:
+        log(f"[ERR] {e}")
+        try: client.close()
+        except: pass
+
+def main():
+    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind(("0.0.0.0", LISTEN_PORT))
+    srv.listen(500)
+    log(f"VPS-HENYER proxy :{LISTEN_PORT} -> SSH:{SSH_PORT}")
+    while True:
+        try:
+            client, _ = srv.accept()
+            threading.Thread(target=handle_client, args=(client,), daemon=True).start()
+        except KeyboardInterrupt:
+            break
+        except Exception as e:
+            log(f"[ACCEPT ERR] {e}")
+
+if __name__ == "__main__":
+    main()
+PYEOF
+
+    # Reemplazar SSH_DEFAULT con el puerto real
+    sed -i "s/SSH_DEFAULT/${ssh_port}/" "$proxy_script"
+    chmod +x "$proxy_script"
+
+    # Crear servicio systemd
+    cat > "$svc" << SVCEOF
+[Unit]
+Description=VPS-HENYER HTTP Proxy (HTTP Custom / Injector)
+After=network.target ssh.service
+Wants=ssh.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 ${proxy_script} 8880 ${ssh_port}
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+SVCEOF
+
+    systemctl daemon-reload
+    systemctl enable vps-http-proxy 2>/dev/null
+    systemctl restart vps-http-proxy 2>/dev/null
+
+    if systemctl is-active --quiet vps-http-proxy; then
+        success "Proxy HTTP activo en puerto 8880 → SSH:${ssh_port}"
+    else
+        warn "Proxy HTTP no pudo iniciar. Revisa: journalctl -u vps-http-proxy -n 20"
+    fi
+}
+
 main() {
     print_banner
     check_root
@@ -389,6 +580,8 @@ main() {
     create_dirs
     download_scripts
     generate_missing_scripts
+    configure_ssh_compatibility
+    configure_proxy_http
     save_version
     create_global_command
     verify_install
