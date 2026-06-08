@@ -10,7 +10,7 @@ set -uo pipefail
 readonly INSTALL_DIR="/etc/vps-henyer"
 readonly SCRIPTS_DIR="$INSTALL_DIR/scripts"
 readonly LOG_FILE="/var/log/vps-henyer/menu.log"
-readonly REPO_RAW="https://raw.githubusercontent.com/TU_USUARIO/vps-henyer/main"
+readonly REPO_RAW="https://raw.githubusercontent.com/2025-0181-spec/vps-henyer/main"
 
 # ── Paleta de colores ANSI ───────────────────────────────────
 R='\033[0;31m'    # Rojo
