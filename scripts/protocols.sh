@@ -6,7 +6,7 @@
 
 set -uo pipefail
 
-# ── Colores (heredados o redefinidos si se ejecuta solo) ─────
+# ── Colores ──────────────────────────────────────────────────
 G='\033[0;32m'; R='\033[0;31m'; Y='\033[1;33m'
 C='\033[0;36m'; W='\033[1;37m'; DIM='\033[2m'; NC='\033[0m'
 BOLD='\033[1m'
@@ -25,7 +25,6 @@ _cmd_exists()     { command -v "$1" &>/dev/null; }
 _toggle_service() {
     local svc="$1"
     local friendly="${2:-$svc}"
-
     if _service_active "$svc"; then
         info "Deteniendo $friendly..."
         systemctl stop "$svc" && systemctl disable "$svc"
@@ -54,51 +53,216 @@ _apt_install() {
 }
 
 # ╔══════════════════════════════════════════════════════════╗
+#  GESTIÓN DE USUARIOS SSH
+# ╚══════════════════════════════════════════════════════════╝
+handle_ssh_users() {
+    while true; do
+        clear
+        echo -e "\n  ${W}${BOLD}── Gestión de Usuarios SSH ──────────────────────────${NC}\n"
+        echo -e "  ${W}[1]${NC} Crear usuario"
+        echo -e "  ${W}[2]${NC} Listar usuarios"
+        echo -e "  ${W}[3]${NC} Eliminar usuario"
+        echo -e "  ${W}[4]${NC} Cambiar contraseña de usuario"
+        echo -e "  ${W}[5]${NC} Ver expiración de usuario"
+        echo -e "  ${DIM}[0]${NC} Volver"
+        echo ""
+        echo -e "  Selección: \c"; read -r opt
+
+        case "$opt" in
+            1)
+                clear
+                echo -e "\n  ${W}${BOLD}── Crear Usuario SSH ────────────────────────────────${NC}\n"
+                echo -e "  Nombre de usuario: \c"; read -r username
+
+                # Validar nombre
+                if [[ -z "$username" || ! "$username" =~ ^[a-z_][a-z0-9_-]*$ ]]; then
+                    error "Nombre inválido. Solo letras minúsculas, números, - y _"
+                    _press_enter; continue
+                fi
+
+                if id "$username" &>/dev/null; then
+                    error "El usuario '$username' ya existe."
+                    _press_enter; continue
+                fi
+
+                echo -e "  Contraseña: \c"; read -rs password; echo
+                if [[ -z "$password" ]]; then
+                    error "La contraseña no puede estar vacía."
+                    _press_enter; continue
+                fi
+
+                echo -e "  Días hasta expiración (0 = sin límite): \c"; read -r days
+
+                # Crear usuario con shell bash
+                useradd -m -s /bin/bash "$username" 2>/dev/null || die "Error al crear usuario"
+                echo "$username:$password" | chpasswd
+
+                # Aplicar expiración si se indicó
+                if [[ "$days" =~ ^[0-9]+$ ]] && (( days > 0 )); then
+                    local exp_date
+                    exp_date=$(date -d "+${days} days" +%Y-%m-%d)
+                    chage -E "$exp_date" "$username"
+                    success "Usuario '${username}' creado. Expira: ${exp_date}"
+                else
+                    success "Usuario '${username}' creado sin fecha de expiración."
+                fi
+
+                echo ""
+                info "Puerto SSH actual: $(grep -iE "^Port " /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}' || echo '22')"
+                info "Conexión: ssh ${username}@$(curl -s --max-time 3 https://ipv4.icanhazip.com 2>/dev/null || echo 'TU_IP')"
+                _press_enter
+                ;;
+            2)
+                clear
+                echo -e "\n  ${W}${BOLD}── Usuarios SSH del Sistema ─────────────────────────${NC}\n"
+                printf "  %-18s %-8s %-20s %s\n" "USUARIO" "UID" "EXPIRA" "SHELL"
+                echo -e "  ${DIM}────────────────────────────────────────────────────${NC}"
+                while IFS=: read -r user _ uid _ _ _ shell; do
+                    if [[ "$shell" == */bash || "$shell" == */sh ]] && (( uid >= 1000 )); then
+                        local exp
+                        exp=$(chage -l "$user" 2>/dev/null | grep "Account expires" | cut -d: -f2 | xargs)
+                        printf "  ${G}%-18s${NC} %-8s %-20s %s\n" "$user" "$uid" "$exp" "$shell"
+                    fi
+                done < /etc/passwd
+                echo ""
+                _press_enter
+                ;;
+            3)
+                clear
+                echo -e "\n  ${W}${BOLD}── Eliminar Usuario SSH ─────────────────────────────${NC}\n"
+                echo -e "  Usuario a eliminar: \c"; read -r username
+
+                if ! id "$username" &>/dev/null; then
+                    error "El usuario '$username' no existe."
+                    _press_enter; continue
+                fi
+
+                # Seguridad: no eliminar root ni usuarios del sistema
+                local uid
+                uid=$(id -u "$username" 2>/dev/null)
+                if (( uid < 1000 )); then
+                    error "No se puede eliminar usuario del sistema (UID < 1000)."
+                    _press_enter; continue
+                fi
+
+                echo -e "  ${Y}⚠  ¿Eliminar '${username}' y su directorio home? [s/N]: \c"
+                read -r confirm
+                if [[ "${confirm,,}" == "s" ]]; then
+                    # Cerrar sesiones activas del usuario
+                    pkill -u "$username" 2>/dev/null || true
+                    userdel -r "$username" 2>/dev/null
+                    success "Usuario '$username' eliminado correctamente."
+                else
+                    info "Operación cancelada."
+                fi
+                _press_enter
+                ;;
+            4)
+                clear
+                echo -e "\n  ${W}${BOLD}── Cambiar Contraseña ───────────────────────────────${NC}\n"
+                echo -e "  Nombre de usuario: \c"; read -r username
+
+                if ! id "$username" &>/dev/null; then
+                    error "El usuario '$username' no existe."
+                    _press_enter; continue
+                fi
+
+                echo -e "  Nueva contraseña: \c"; read -rs password; echo
+                if [[ -z "$password" ]]; then
+                    error "La contraseña no puede estar vacía."
+                    _press_enter; continue
+                fi
+
+                echo "$username:$password" | chpasswd
+                success "Contraseña de '$username' actualizada."
+                _press_enter
+                ;;
+            5)
+                clear
+                echo -e "\n  ${W}${BOLD}── Expiración de Usuario ────────────────────────────${NC}\n"
+                echo -e "  Nombre de usuario: \c"; read -r username
+
+                if ! id "$username" &>/dev/null; then
+                    error "El usuario '$username' no existe."
+                    _press_enter; continue
+                fi
+
+                echo ""
+                chage -l "$username" | while IFS= read -r line; do
+                    echo -e "  ${DIM}$line${NC}"
+                done
+                _press_enter
+                ;;
+            0) return ;;
+            *) warn "Opción inválida."; sleep 1 ;;
+        esac
+    done
+}
+
+# ╔══════════════════════════════════════════════════════════╗
 #  HANDLERS DE PROTOCOLOS
 # ╚══════════════════════════════════════════════════════════╝
-
 handle_ssh() {
-    clear
-    echo -e "\n  ${W}${BOLD}── OpenSSH ──────────────────────────────────────${NC}\n"
+    while true; do
+        clear
+        echo -e "\n  ${W}${BOLD}── OpenSSH ──────────────────────────────────────────${NC}\n"
 
-    if ! _cmd_exists "sshd"; then
-        _apt_install "openssh-server"
-    fi
+        if ! _cmd_exists "sshd"; then
+            _apt_install "openssh-server"
+        fi
 
-    echo -e "  ${W}[1]${NC} Activar / Desactivar SSH"
-    echo -e "  ${W}[2]${NC} Cambiar puerto SSH"
-    echo -e "  ${W}[3]${NC} Ver usuarios conectados"
-    echo -e "  ${DIM}[0]${NC} Volver"
-    echo ""
-    echo -e "  Selección: \c"; read -r opt
-    case "$opt" in
-        1) _toggle_service "ssh" "OpenSSH" ;;
-        2)
-            echo -e "  Nuevo puerto (actual: $(grep -i "^Port" /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}' || echo '22')): \c"
-            read -r port
-            if [[ "$port" =~ ^[0-9]+$ ]] && (( port > 0 && port < 65536 )); then
-                sed -i "s/^#*Port .*/Port $port/" /etc/ssh/sshd_config
-                systemctl reload ssh 2>/dev/null || systemctl restart ssh 2>/dev/null
-                success "Puerto SSH cambiado a $port"
-            else
-                error "Puerto inválido: $port"
-            fi
-            ;;
-        3)
-            echo ""
-            info "Usuarios conectados vía SSH:"
-            who 2>/dev/null || echo "  (ninguno)"
-            ;;
-        0) return ;;
-        *) warn "Opción inválida." ;;
-    esac
-    _press_enter
+        local status_ssh
+        if systemctl is-active --quiet ssh 2>/dev/null; then
+            status_ssh="${G}● ACTIVO${NC}"
+        else
+            status_ssh="${R}● INACTIVO${NC}"
+        fi
+        local puerto_ssh
+        puerto_ssh=$(grep -iE "^Port " /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}' || echo '22')
+
+        echo -e "  Estado : $status_ssh"
+        echo -e "  Puerto : ${W}${puerto_ssh}${NC}"
+        echo ""
+        echo -e "  ${W}[1]${NC} Activar / Desactivar SSH"
+        echo -e "  ${W}[2]${NC} Cambiar puerto SSH"
+        echo -e "  ${W}[3]${NC} Ver usuarios conectados ahora"
+        echo -e "  ${W}[4]${NC} ${G}${BOLD}Gestión de usuarios SSH${NC}"
+        echo -e "  ${DIM}[0]${NC} Volver"
+        echo ""
+        echo -e "  Selección: \c"; read -r opt
+
+        case "$opt" in
+            1) _toggle_service "ssh" "OpenSSH"; _press_enter ;;
+            2)
+                echo -e "  Nuevo puerto: \c"; read -r port
+                if [[ "$port" =~ ^[0-9]+$ ]] && (( port > 0 && port < 65536 )); then
+                    sed -i "s/^#*Port .*/Port $port/" /etc/ssh/sshd_config
+                    systemctl reload ssh 2>/dev/null || systemctl restart ssh 2>/dev/null
+                    success "Puerto SSH cambiado a $port"
+                else
+                    error "Puerto inválido: $port"
+                fi
+                _press_enter
+                ;;
+            3)
+                echo ""
+                info "Sesiones SSH activas:"
+                who 2>/dev/null | grep -v "^$" || echo -e "  ${DIM}(ninguna sesión activa)${NC}"
+                echo ""
+                info "Últimos accesos:"
+                last -n 5 2>/dev/null | head -6 || true
+                _press_enter
+                ;;
+            4) handle_ssh_users ;;
+            0) return ;;
+            *) warn "Opción inválida."; sleep 1 ;;
+        esac
+    done
 }
 
 handle_dropbear() {
     clear
     echo -e "\n  ${W}${BOLD}── Dropbear SSH ────────────────────────────────${NC}\n"
-
     if ! _cmd_exists "dropbear"; then
         echo -e "  Dropbear no está instalado."
         echo -e "  ${W}[1]${NC} Instalar ahora  ${DIM}[0]${NC} Cancelar"
@@ -106,7 +270,6 @@ handle_dropbear() {
         [[ "$opt" == "1" ]] || return
         _apt_install "dropbear"
     fi
-
     echo -e "  ${W}[1]${NC} Activar / Desactivar Dropbear"
     echo -e "  ${W}[2]${NC} Cambiar puerto Dropbear"
     echo -e "  ${DIM}[0]${NC} Volver"
@@ -116,7 +279,6 @@ handle_dropbear() {
         2)
             echo -e "  Nuevo puerto: \c"; read -r port
             if [[ "$port" =~ ^[0-9]+$ ]]; then
-                sed -i "s/^NO_START=.*/NO_START=0/" /etc/default/dropbear 2>/dev/null || true
                 sed -i "s/^DROPBEAR_PORT=.*/DROPBEAR_PORT=$port/" /etc/default/dropbear 2>/dev/null || true
                 systemctl restart dropbear 2>/dev/null
                 success "Dropbear en puerto $port"
@@ -132,22 +294,19 @@ handle_dropbear() {
 handle_openvpn() {
     clear
     echo -e "\n  ${W}${BOLD}── OpenVPN ──────────────────────────────────────${NC}\n"
-
     if ! _cmd_exists "openvpn"; then
         echo -e "  OpenVPN no está instalado."
         echo -e "  ${W}[1]${NC} Instalar con script automático  ${DIM}[0]${NC} Cancelar"
         read -r opt
         [[ "$opt" == "1" ]] || return
-        # Usa el instalador oficial de angristan/openvpn-install
         info "Descargando instalador de OpenVPN..."
         curl -O https://raw.githubusercontent.com/angristan/openvpn-install/master/openvpn-install.sh \
             && chmod +x openvpn-install.sh \
             && bash openvpn-install.sh
         return
     fi
-
     echo -e "  ${W}[1]${NC} Activar / Desactivar OpenVPN"
-    echo -e "  ${W}[2]${NC} Gestionar clientes (agregar/revocar)"
+    echo -e "  ${W}[2]${NC} Gestionar clientes"
     echo -e "  ${DIM}[0]${NC} Volver"
     echo -e "  Selección: \c"; read -r opt
     case "$opt" in
@@ -167,7 +326,6 @@ handle_openvpn() {
 handle_xray() {
     clear
     echo -e "\n  ${W}${BOLD}── V2Ray / Xray ─────────────────────────────────${NC}\n"
-
     if ! _cmd_exists "xray"; then
         echo -e "  Xray no está instalado."
         echo -e "  ${W}[1]${NC} Instalar Xray oficial  ${DIM}[0]${NC} Cancelar"
@@ -179,7 +337,6 @@ handle_xray() {
         success "Xray instalado."
         return
     fi
-
     echo -e "  ${W}[1]${NC} Activar / Desactivar Xray"
     echo -e "  ${W}[2]${NC} Ver configuración actual"
     echo -e "  ${DIM}[0]${NC} Volver"
@@ -213,7 +370,6 @@ handle_squid() {
 handle_trojan() {
     clear
     echo -e "\n  ${W}${BOLD}── Trojan-GO ─────────────────────────────────────${NC}\n"
-    info "Trojan-GO requiere un certificado SSL válido."
     echo -e "  ${W}[1]${NC} Activar / Desactivar Trojan-GO"
     echo -e "  ${DIM}[0]${NC} Volver"
     echo -e "  Selección: \c"; read -r opt
@@ -244,7 +400,7 @@ handle_websocket() {
     echo -e "  ${W}[1]${NC} Configurar WebSocket TLS  ${DIM}[0]${NC} Volver"
     echo -e "  Selección: \c"; read -r opt
     case "$opt" in
-        1) info "Módulo WS-TLS — Próximamente / implementa tu lógica aquí." ;;
+        1) info "Módulo WS-TLS — Próximamente." ;;
         0) return ;;
     esac
     _press_enter
@@ -277,7 +433,7 @@ case "$PROTOCOL" in
     psiphon)   handle_psiphon   ;;
     *)
         error "Protocolo no reconocido: '$PROTOCOL'"
-        echo -e "  Protocolos válidos: ssh dropbear openvpn squid xray trojan ssr websocket psiphon"
+        echo -e "  Válidos: ssh dropbear openvpn squid xray trojan ssr websocket psiphon"
         exit 1
         ;;
 esac
