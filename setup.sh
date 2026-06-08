@@ -83,16 +83,16 @@ download_scripts() {
     # Archivos raíz
     declare -A root_files=(
         ["menu.sh"]="$INSTALL_DIR/menu.sh"
-        ["protocols.sh"]="$INSTALL_DIR/protocols.sh"
         ["version.txt"]="$INSTALL_DIR/version.txt"
     )
 
-    # Archivos raíz
-    declare -A root_files=(
-        ["menu.sh"]="$INSTALL_DIR/menu.sh"
-        ["version.txt"]="$INSTALL_DIR/version.txt"
+    # Archivos en /scripts
+    declare -A script_files=(
+        ["scripts/protocols.sh"]="$SCRIPTS_DIR/protocols.sh"
+        ["scripts/tools.sh"]="$SCRIPTS_DIR/tools.sh"
+        ["scripts/security.sh"]="$SCRIPTS_DIR/security.sh"
     )
-
+    
     for remote in "${!root_files[@]}"; do
         local dest="${root_files[$remote]}"
         if curl -fsSL --retry 3 --retry-delay 2 -o "$dest" "$REPO_RAW/$remote"; then
