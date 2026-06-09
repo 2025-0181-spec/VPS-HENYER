@@ -510,7 +510,920 @@ BADVPNSVC
 }
 
 # ╔══════════════════════════════════════════════════════════╗
-#  WEBSOCKET + SSL/TLS
+#  BADVPN-UDPGW — MÓDULO COMPLETO (Llamadas VoIP / UDP)
+# ╚══════════════════════════════════════════════════════════╝
+handle_badvpn() {
+    while true; do
+        clear
+        echo -e "\n  ${W}${BOLD}── BadVPN-UDPGW  (UDP para llamadas VoIP) ───────────${NC}\n"
+        echo -e "  ${DIM}BadVPN-UDPGW permite túneles UDP sobre SSH.${NC}"
+        echo -e "  ${DIM}Necesario para llamadas WhatsApp/Telegram con HTTP Custom.${NC}"
+        echo ""
+
+        # ─ Estado actual ──────────────────────────────────
+        local udpgw_bin="" udpgw_status="" udpgw_port="7300"
+        _cmd_exists "badvpn-udpgw" && udpgw_bin="/usr/local/bin/badvpn-udpgw"
+        [[ -z "$udpgw_bin" && -f /usr/bin/badvpn-udpgw ]] && udpgw_bin="/usr/bin/badvpn-udpgw"
+
+        if [[ -n "$udpgw_bin" ]]; then
+            if _service_active "badvpn-udpgw"; then
+                udpgw_status="${G}● ACTIVO${NC}"
+                udpgw_port=$(grep -oP '\-\-listen-addr 127\.0\.0\.1:\K[0-9]+' \
+                    /etc/systemd/system/badvpn-udpgw.service 2>/dev/null || echo "7300")
+            else
+                udpgw_status="${Y}● INSTALADO / INACTIVO${NC}"
+            fi
+        else
+            udpgw_status="${R}● NO INSTALADO${NC}"
+        fi
+
+        echo -e "  Estado      : $udpgw_status"
+        echo -e "  Puerto UDPGW: ${W}127.0.0.1:${udpgw_port}${NC}  ${DIM}(local, para clientes SSH)${NC}"
+        echo ""
+        echo -e "  ${W}[1]${NC} Instalar BadVPN-UDPGW"
+        echo -e "  ${W}[2]${NC} Activar / Desactivar servicio"
+        echo -e "  ${W}[3]${NC} Cambiar puerto UDPGW"
+        echo -e "  ${W}[4]${NC} Ver log en tiempo real"
+        echo -e "  ${W}[5]${NC} Mostrar guía de configuración en la app"
+        echo -e "  ${W}[6]${NC} Desinstalar BadVPN-UDPGW"
+        echo -e "  ${DIM}[0]${NC} Volver"
+        echo ""; echo -e "  Selección: \c"; read -r opt
+
+        case "$opt" in
+        1)
+            clear
+            echo -e "\n  ${W}${BOLD}── Instalando BadVPN-UDPGW ──────────────────────────${NC}\n"
+
+            if [[ -n "$udpgw_bin" ]]; then
+                success "badvpn-udpgw ya está instalado en: $udpgw_bin"
+                _press_enter; continue
+            fi
+
+            # Método 1: apt (Ubuntu/Debian repos)
+            info "Intentando instalación desde repositorio..."
+            if apt-get install -y -qq badvpn 2>/dev/null; then
+                success "badvpn instalado via apt."
+            else
+                # Método 2: compilar desde fuente
+                info "Compilando desde fuente (puede tomar 2-3 min)..."
+                _apt_install "cmake"
+                _apt_install "build-essential"
+                _apt_install "git"
+
+                cd /tmp || exit 1
+                rm -rf badvpn-src 2>/dev/null || true
+
+                if git clone --depth=1 https://github.com/ambrop72/badvpn.git badvpn-src 2>/dev/null; then
+                    mkdir -p /tmp/badvpn-src/build
+                    cd /tmp/badvpn-src/build
+                    cmake .. -DBUILD_NOTHING_BY_DEFAULT=1 -DBUILD_UDPGW=1 > /dev/null 2>&1
+                    make -j"$(nproc)" > /dev/null 2>&1
+                    if [[ -f udpgw/badvpn-udpgw ]]; then
+                        cp udpgw/badvpn-udpgw /usr/local/bin/
+                        chmod +x /usr/local/bin/badvpn-udpgw
+                        udpgw_bin="/usr/local/bin/badvpn-udpgw"
+                        success "badvpn-udpgw compilado e instalado."
+                    else
+                        error "Compilación fallida. Verifica gcc/cmake."
+                        _press_enter; continue
+                    fi
+                else
+                    # Método 3: binario precompilado
+                    warn "git clone fallido. Intentando binario precompilado..."
+                    if wget -q -O /usr/local/bin/badvpn-udpgw \
+                        "https://github.com/Towerism/badvpn/releases/download/1.999.130/badvpn-udpgw" 2>/dev/null; then
+                        chmod +x /usr/local/bin/badvpn-udpgw
+                        udpgw_bin="/usr/local/bin/badvpn-udpgw"
+                        success "Binario precompilado instalado."
+                    else
+                        error "No se pudo instalar badvpn-udpgw por ningún método."
+                        warn "Intenta: apt-get install badvpn manualmente."
+                        _press_enter; continue
+                    fi
+                fi
+            fi
+
+            # Crear servicio systemd
+            cat > /etc/systemd/system/badvpn-udpgw.service << 'UDPGWSVC'
+[Unit]
+Description=BadVPN UDPGW — UDP Gateway para VoIP/llamadas SSH
+After=network.target
+Documentation=https://github.com/ambrop72/badvpn
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/badvpn-udpgw \
+    --listen-addr 127.0.0.1:7300 \
+    --max-clients 500 \
+    --max-connections-for-client 10
+Restart=always
+RestartSec=5
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
+UDPGWSVC
+
+            systemctl daemon-reload
+            systemctl enable badvpn-udpgw
+            systemctl start badvpn-udpgw
+            sleep 1
+            if _service_active "badvpn-udpgw"; then
+                success "badvpn-udpgw activo en 127.0.0.1:7300"
+                echo ""
+                echo -e "  ${Y}${BOLD}⟶  SIGUIENTE PASO:${NC}"
+                echo -e "  ${DIM}En tu app (HTTP Custom / HTTP Injector / NapsternetV)${NC}"
+                echo -e "  ${DIM}activa la opción UDP/VoIP y pon el puerto: 7300${NC}"
+            else
+                warn "Servicio no inició. Revisa: journalctl -u badvpn-udpgw -n 20"
+            fi
+            _press_enter
+            ;;
+        2)
+            if [[ -z "$udpgw_bin" ]]; then
+                error "BadVPN no está instalado. Usa la opción [1]."
+                _press_enter; continue
+            fi
+            if _service_active "badvpn-udpgw"; then
+                systemctl stop badvpn-udpgw && systemctl disable badvpn-udpgw 2>/dev/null
+                success "badvpn-udpgw → DETENIDO"
+            else
+                systemctl enable badvpn-udpgw && systemctl start badvpn-udpgw 2>/dev/null
+                sleep 1
+                _service_active "badvpn-udpgw" && success "badvpn-udpgw → ACTIVO (127.0.0.1:7300)" \
+                    || error "No pudo iniciar. Revisa: journalctl -u badvpn-udpgw"
+            fi
+            _press_enter
+            ;;
+        3)
+            echo -e "  Nuevo puerto UDPGW (actual: ${udpgw_port}): \c"; read -r nport
+            if [[ "$nport" =~ ^[0-9]+$ ]] && (( nport > 1024 && nport < 65535 )); then
+                sed -i "s/127\.0\.0\.1:[0-9]*/127.0.0.1:$nport/" \
+                    /etc/systemd/system/badvpn-udpgw.service 2>/dev/null || true
+                systemctl daemon-reload
+                systemctl restart badvpn-udpgw 2>/dev/null
+                success "Puerto UDPGW cambiado a $nport"
+            else
+                error "Puerto inválido (usa 1025-65534)."
+            fi
+            _press_enter
+            ;;
+        4)
+            echo -e "\n  ${DIM}Log en tiempo real (Ctrl+C para salir)...${NC}\n"
+            journalctl -u badvpn-udpgw -f --no-pager 2>/dev/null || \
+                warn "journalctl no disponible."
+            ;;
+        5)
+            clear
+            echo -e "\n  ${W}${BOLD}── Guía: Activar llamadas VoIP en tu app ─────────────${NC}\n"
+            local ip; ip=$(curl -s --max-time 4 https://ipv4.icanhazip.com 2>/dev/null || echo "TU_IP")
+            local ssh_port; ssh_port=$(grep -iE "^Port " /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}' || echo "22")
+            local cur_port; cur_port=$(grep -oP '\-\-listen-addr 127\.0\.0\.1:\K[0-9]+' \
+                /etc/systemd/system/badvpn-udpgw.service 2>/dev/null || echo "7300")
+
+            echo -e "  ${Y}${BOLD}╔═ CONFIGURACIÓN PARA HTTP CUSTOM ══════════════════╗${NC}"
+            echo -e "  ${Y}│${NC}"
+            echo -e "  ${Y}│${NC}  1. Abre HTTP Custom → pestaña SSH"
+            echo -e "  ${Y}│${NC}  2. Servidor: ${W}${ip}:8880${NC}  (o tu dominio)"
+            echo -e "  ${Y}│${NC}  3. Usuario SSH y contraseña"
+            echo -e "  ${Y}│${NC}  4. Activa: ${W}\"Use Payload\"${NC}"
+            echo -e "  ${Y}│${NC}  5. Para llamadas: activa ${W}\"UDP Custom\"${NC}"
+            echo -e "  ${Y}│${NC}     Puerto UDP: ${W}${cur_port}${NC}"
+            echo -e "  ${Y}│${NC}  6. Payload sugerido:"
+            echo -e "  ${Y}│${NC}     ${DIM}GET / HTTP/1.1[crlf]Host: ${ip}[crlf]"
+            echo -e "  ${Y}│${NC}     ${DIM}Upgrade: websocket[crlf]Connection: Upgrade[crlf][crlf]${NC}"
+            echo -e "  ${Y}│${NC}"
+            echo -e "  ${Y}${BOLD}╠═ CONFIGURACIÓN PARA HTTP INJECTOR ════════════════╣${NC}"
+            echo -e "  ${Y}│${NC}"
+            echo -e "  ${Y}│${NC}  SSH Server  : ${W}${ip}${NC}"
+            echo -e "  ${Y}│${NC}  SSH Port    : ${W}${ssh_port}${NC}"
+            echo -e "  ${Y}│${NC}  Proxy Host  : ${W}${ip}${NC}"
+            echo -e "  ${Y}│${NC}  Proxy Port  : ${W}8880${NC}"
+            echo -e "  ${Y}│${NC}  Payload Type: ${W}Default / CONNECT${NC}"
+            echo -e "  ${Y}│${NC}  UDPGW Port  : ${W}${cur_port}${NC}  ← para VoIP"
+            echo -e "  ${Y}│${NC}"
+            echo -e "  ${Y}${BOLD}╠═ NAPSTERNETV ══════════════════════════════════════╣${NC}"
+            echo -e "  ${Y}│${NC}"
+            echo -e "  ${Y}│${NC}  Modo        : ${W}SSH${NC}"
+            echo -e "  ${Y}│${NC}  Host        : ${W}${ip}${NC}"
+            echo -e "  ${Y}│${NC}  Puerto      : ${W}${ssh_port}${NC}"
+            echo -e "  ${Y}│${NC}  SNI/Host    : tu dominio (si tienes)"
+            echo -e "  ${Y}│${NC}  BadVPN Port : ${W}${cur_port}${NC}  ← para llamadas"
+            echo -e "  ${Y}${BOLD}╚═══════════════════════════════════════════════════╝${NC}"
+            echo ""
+            warn "BadVPN debe estar ACTIVO en el servidor para que funcionen las llamadas."
+            _press_enter
+            ;;
+        6)
+            echo -e "  ${R}⚠  ¿Desinstalar badvpn-udpgw? [s/N]: \c"; read -r confirm
+            if [[ "${confirm,,}" == "s" ]]; then
+                systemctl stop badvpn-udpgw 2>/dev/null || true
+                systemctl disable badvpn-udpgw 2>/dev/null || true
+                rm -f /etc/systemd/system/badvpn-udpgw.service
+                rm -f /usr/local/bin/badvpn-udpgw /usr/bin/badvpn-udpgw 2>/dev/null || true
+                systemctl daemon-reload
+                success "badvpn-udpgw desinstalado."
+            else
+                info "Cancelado."
+            fi
+            _press_enter
+            ;;
+        0) return ;;
+        *) warn "Opción inválida."; sleep 1 ;;
+        esac
+    done
+}
+
+# ╔══════════════════════════════════════════════════════════╗
+#  XRAY / V2RAY — WIZARD COMPLETO PASO A PASO
+# ╚══════════════════════════════════════════════════════════╝
+handle_xray() {
+    while true; do
+        clear
+        echo -e "\n  ${W}${BOLD}── V2Ray / Xray ──────────────────────────────────────${NC}\n"
+
+        local xray_bin=""
+        _cmd_exists "xray"   && xray_bin="xray"
+        _cmd_exists "v2ray"  && [[ -z "$xray_bin" ]] && xray_bin="v2ray"
+
+        local xray_status
+        if _service_active "xray"; then
+            xray_status="${G}● ACTIVO (xray)${NC}"
+        elif _service_active "v2ray"; then
+            xray_status="${G}● ACTIVO (v2ray)${NC}"
+        elif [[ -n "$xray_bin" ]]; then
+            xray_status="${Y}● INSTALADO / INACTIVO${NC}"
+        else
+            xray_status="${R}● NO INSTALADO${NC}"
+        fi
+
+        echo -e "  Estado: $xray_status"
+        echo ""
+        echo -e "  ${W}[1]${NC} ${G}${BOLD}Instalar Xray${NC} (oficial XTLS)"
+        echo -e "  ${W}[2]${NC} ${G}${BOLD}Configurar protocolo${NC} (Wizard paso a paso)"
+        echo -e "  ${W}[3]${NC} Activar / Desactivar Xray"
+        echo -e "  ${W}[4]${NC} Ver configuración actual"
+        echo -e "  ${W}[5]${NC} Ver QR / datos de conexión para cliente"
+        echo -e "  ${W}[6]${NC} Ver log en tiempo real"
+        echo -e "  ${W}[7]${NC} Reiniciar Xray"
+        echo -e "  ${DIM}[0]${NC} Volver"
+        echo ""; echo -e "  Selección: \c"; read -r opt
+
+        case "$opt" in
+        1) _xray_install ;;
+        2) _xray_wizard  ;;
+        3)
+            local svc="xray"
+            _service_active "v2ray" && svc="v2ray"
+            if _service_active "$svc"; then
+                systemctl stop "$svc" && systemctl disable "$svc" 2>/dev/null
+                success "Xray → DETENIDO"
+            else
+                systemctl enable "$svc" && systemctl start "$svc" 2>/dev/null
+                sleep 1
+                _service_active "$svc" && success "Xray → ACTIVO" || error "No pudo iniciar. Usa [6] para ver el log."
+            fi
+            _press_enter
+            ;;
+        4)
+            echo ""
+            local cfg="/usr/local/etc/xray/config.json"
+            [[ -f "$cfg" ]] || cfg="/etc/xray/config.json"
+            if [[ -f "$cfg" ]]; then
+                cat "$cfg" | while read -r line; do echo -e "  ${DIM}$line${NC}"; done
+            else
+                warn "No hay config instalada. Usa [2] para configurar."
+            fi
+            _press_enter
+            ;;
+        5) _xray_show_client ;;
+        6)
+            echo -e "\n  ${DIM}Log en tiempo real (Ctrl+C para salir)...${NC}\n"
+            local svc="xray"; _service_active "v2ray" && svc="v2ray"
+            journalctl -u "$svc" -f --no-pager 2>/dev/null || warn "journalctl no disponible."
+            ;;
+        7)
+            local svc="xray"; _service_active "v2ray" && svc="v2ray"
+            systemctl restart "$svc" 2>/dev/null
+            sleep 1
+            _service_active "$svc" && success "$svc reiniciado." || error "No pudo reiniciar."
+            _press_enter
+            ;;
+        0) return ;;
+        *) warn "Opción inválida."; sleep 1 ;;
+        esac
+    done
+}
+
+# ── Instalar Xray ────────────────────────────────────────────
+_xray_install() {
+    clear
+    echo -e "\n  ${W}${BOLD}── Instalar Xray (XTLS oficial) ──────────────────────${NC}\n"
+
+    if _cmd_exists "xray"; then
+        local ver; ver=$(xray version 2>/dev/null | head -1 || echo "desconocida")
+        success "Xray ya está instalado. ($ver)"
+        echo -e "  ${W}[1]${NC} Reinstalar/Actualizar  ${DIM}[0]${NC} Cancelar"
+        echo -e "  Selección: \c"; read -r o
+        [[ "$o" == "1" ]] || { _press_enter; return; }
+    fi
+
+    info "Descargando instalador oficial de Xray (XTLS)..."
+    if bash <(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh) 2>/dev/null; then
+        success "Xray instalado correctamente."
+        local ver; ver=$(xray version 2>/dev/null | head -1 || echo "instalado")
+        info "Versión: $ver"
+        echo ""
+        echo -e "  ${Y}⟶  Ahora ve al menú [2] para configurar el protocolo.${NC}"
+    else
+        error "Falló la instalación automática."
+        warn "Intenta manualmente:"
+        echo -e "  ${DIM}bash <(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)${NC}"
+    fi
+    _press_enter
+}
+
+# ── Wizard de configuración V2Ray/Xray ───────────────────────
+_xray_wizard() {
+    clear
+    echo -e "\n  ${W}${BOLD}── Wizard V2Ray/Xray: Elige protocolo ────────────────${NC}\n"
+    echo -e "  ${DIM}Cada protocolo tiene su caso de uso. Elige el que${NC}"
+    echo -e "  ${DIM}mejor se adapte a tu situación.${NC}"
+    echo ""
+    echo -e "  ${W}[1]${NC} ${G}VMess + WebSocket + TLS${NC}  ${DIM}(recomendado, muy compatible)${NC}"
+    echo -e "  ${W}[2]${NC} ${G}VMess + TCP${NC}               ${DIM}(rápido, sin dominio necesario)${NC}"
+    echo -e "  ${W}[3]${NC} ${G}VLESS + WebSocket + TLS${NC}   ${DIM}(más ligero que VMess)${NC}"
+    echo -e "  ${W}[4]${NC} ${G}VLESS + Reality${NC}           ${DIM}(máxima evasión, avanzado)${NC}"
+    echo -e "  ${W}[5]${NC} ${G}Trojan + WebSocket + TLS${NC}  ${DIM}(parece HTTPS legítimo)${NC}"
+    echo -e "  ${DIM}[0]${NC} Volver"
+    echo ""; echo -e "  Selección: \c"; read -r proto_opt
+
+    case "$proto_opt" in
+        1) _xray_config_vmess_ws_tls ;;
+        2) _xray_config_vmess_tcp    ;;
+        3) _xray_config_vless_ws_tls ;;
+        4) _xray_config_vless_reality ;;
+        5) _xray_config_trojan_ws_tls ;;
+        0) return ;;
+        *) warn "Opción inválida."; sleep 1 ;;
+    esac
+}
+
+# ── Generar UUID ────────────────────────────────────────────
+_gen_uuid() {
+    cat /proc/sys/kernel/random/uuid 2>/dev/null \
+        || python3 -c "import uuid; print(uuid.uuid4())" 2>/dev/null \
+        || uuidgen 2>/dev/null \
+        || echo "$(date +%s)-$(cat /dev/urandom | tr -dc 'a-f0-9' | head -c 12)"
+}
+
+# ── Paso común: preguntar puerto ────────────────────────────
+_ask_port() {
+    local default="$1" label="${2:-Puerto}"
+    local port
+    while true; do
+        echo -e "  ${label} [default: ${default}]: \c"; read -r port
+        port="${port:-$default}"
+        if [[ "$port" =~ ^[0-9]+$ ]] && (( port > 0 && port < 65536 )); then
+            echo "$port"; return 0
+        fi
+        warn "Puerto inválido. Usa un número entre 1 y 65535."
+    done
+}
+
+# ── Guardar y aplicar config ────────────────────────────────
+_xray_apply_config() {
+    local config_json="$1"
+    local cfg_dir="/usr/local/etc/xray"
+    mkdir -p "$cfg_dir"
+    echo "$config_json" > "$cfg_dir/config.json"
+
+    # Validar JSON con xray si disponible
+    if _cmd_exists "xray"; then
+        if xray run -test -config "$cfg_dir/config.json" &>/dev/null; then
+            success "Configuración JSON válida."
+        else
+            warn "Posible error en el JSON. Revisa con: xray run -test -config $cfg_dir/config.json"
+        fi
+    fi
+
+    systemctl daemon-reload
+    systemctl enable xray 2>/dev/null || true
+    systemctl restart xray 2>/dev/null || true
+    sleep 2
+
+    if _service_active "xray"; then
+        success "Xray reiniciado con nueva configuración."
+    else
+        error "Xray no pudo iniciar. Revisa el log:"
+        echo -e "  ${DIM}journalctl -u xray -n 30${NC}"
+    fi
+}
+
+# ╔══════════════════════════════════════════════════════════╗
+#  WIZARD 1: VMess + WebSocket + TLS
+# ╚══════════════════════════════════════════════════════════╝
+_xray_config_vmess_ws_tls() {
+    clear
+    echo -e "\n  ${W}${BOLD}── Configurar VMess + WebSocket + TLS ────────────────${NC}\n"
+    echo -e "  ${DIM}PASO 1/4: Datos básicos${NC}\n"
+
+    # Paso 1: UUID
+    local uuid; uuid=$(_gen_uuid)
+    echo -e "  UUID generado: ${G}${uuid}${NC}"
+    echo -e "  ¿Usar este UUID? [S/n]: \c"; read -r ans
+    if [[ "${ans,,}" == "n" ]]; then
+        echo -e "  Escribe tu UUID: \c"; read -r uuid
+    fi
+
+    # Paso 2: Puerto de escucha
+    echo ""
+    echo -e "  ${DIM}PASO 2/4: Puerto${NC}\n"
+    local port; port=$(_ask_port "443" "Puerto de escucha (443 recomendado con TLS)")
+
+    # Paso 3: Dominio y TLS
+    echo ""
+    echo -e "  ${DIM}PASO 3/4: Dominio y certificado TLS${NC}\n"
+    echo -e "  Dominio (ej: midominio.com) o IP del servidor: \c"; read -r domain
+    domain="${domain:-$(curl -s --max-time 4 https://ipv4.icanhazip.com 2>/dev/null || echo 'TU_DOMINIO')}"
+
+    local cert_path="/etc/letsencrypt/live/${domain}/fullchain.pem"
+    local key_path="/etc/letsencrypt/live/${domain}/privkey.pem"
+    local use_tls="true"
+
+    if [[ ! -f "$cert_path" ]]; then
+        warn "No se encontró certificado Let's Encrypt para: $domain"
+        echo -e "  ${W}[1]${NC} Obtener certificado ahora (certbot)  ${W}[2]${NC} Usar rutas manuales  ${W}[3]${NC} Sin TLS (inseguro)"
+        echo -e "  Selección: \c"; read -r tls_opt
+        case "$tls_opt" in
+            1)
+                _apt_install "certbot"
+                certbot certonly --standalone -d "$domain" --non-interactive --agree-tos --email "admin@${domain}" 2>/dev/null \
+                    || certbot certonly --standalone -d "$domain"
+                if [[ -f "$cert_path" ]]; then
+                    success "Certificado obtenido para $domain"
+                else
+                    warn "No se pudo obtener el certificado. Continuando sin TLS."
+                    use_tls="false"
+                fi
+                ;;
+            2)
+                echo -e "  Ruta al certificado (.crt/.pem): \c"; read -r cert_path
+                echo -e "  Ruta a la clave privada (.key/.pem): \c"; read -r key_path
+                [[ -f "$cert_path" && -f "$key_path" ]] || { warn "Archivos no encontrados. Continuando sin TLS."; use_tls="false"; }
+                ;;
+            3) use_tls="false" ;;
+        esac
+    else
+        success "Certificado Let's Encrypt encontrado para $domain."
+    fi
+
+    # Paso 4: Path WebSocket
+    echo ""
+    echo -e "  ${DIM}PASO 4/4: Path WebSocket${NC}\n"
+    echo -e "  Path WebSocket [default: /ws]: \c"; read -r ws_path
+    ws_path="${ws_path:-/ws}"
+    [[ "$ws_path" != /* ]] && ws_path="/$ws_path"
+
+    # Construir JSON
+    local tls_block=""
+    if [[ "$use_tls" == "true" ]]; then
+        tls_block=$(cat << TLSJ
+    "security": "tls",
+    "tlsSettings": {
+      "certificates": [
+        {
+          "certificateFile": "$cert_path",
+          "keyFile": "$key_path"
+        }
+      ]
+    },
+TLSJ
+)
+    fi
+
+    local config_json
+    config_json=$(cat << VJSON
+{
+  "log": {
+    "loglevel": "warning",
+    "access": "/var/log/xray/access.log",
+    "error": "/var/log/xray/error.log"
+  },
+  "inbounds": [
+    {
+      "port": $port,
+      "protocol": "vmess",
+      "settings": {
+        "clients": [
+          {
+            "id": "$uuid",
+            "alterId": 0
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "ws",
+        $tls_block
+        "wsSettings": {
+          "path": "$ws_path"
+        }
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "protocol": "freedom",
+      "settings": {}
+    }
+  ]
+}
+VJSON
+)
+
+    echo ""
+    info "Aplicando configuración VMess + WS + TLS..."
+    mkdir -p /var/log/xray
+    _xray_apply_config "$config_json"
+
+    # Guardar datos del cliente
+    cat > /etc/vps-henyer/xray_client.txt << CLIENTDATA
+PROTOCOLO=VMess+WebSocket+TLS
+DIRECCION=$domain
+PUERTO=$port
+UUID=$uuid
+ALTERID=0
+RED=ws
+SEGURIDAD=$([ "$use_tls" == "true" ] && echo "tls" || echo "none")
+PATH_WS=$ws_path
+CLIENTDATA
+
+    _xray_show_client
+}
+
+# ╔══════════════════════════════════════════════════════════╗
+#  WIZARD 2: VMess + TCP
+# ╚══════════════════════════════════════════════════════════╝
+_xray_config_vmess_tcp() {
+    clear
+    echo -e "\n  ${W}${BOLD}── Configurar VMess + TCP ────────────────────────────${NC}\n"
+    echo -e "  ${DIM}Sin dominio ni TLS. Más simple, menos ofuscado.${NC}\n"
+
+    local uuid; uuid=$(_gen_uuid)
+    echo -e "  UUID: ${G}${uuid}${NC}"
+    echo -e "  ¿Personalizar UUID? [s/N]: \c"; read -r ans
+    [[ "${ans,,}" == "s" ]] && { echo -e "  UUID: \c"; read -r uuid; }
+
+    local port; port=$(_ask_port "10086" "Puerto de escucha")
+
+    local config_json
+    config_json=$(cat << VTCPJSON
+{
+  "log": {"loglevel": "warning"},
+  "inbounds": [
+    {
+      "port": $port,
+      "protocol": "vmess",
+      "settings": {
+        "clients": [{"id": "$uuid", "alterId": 0}]
+      },
+      "streamSettings": {"network": "tcp"}
+    }
+  ],
+  "outbounds": [{"protocol": "freedom", "settings": {}}]
+}
+VTCPJSON
+)
+    info "Aplicando configuración VMess + TCP..."
+    _xray_apply_config "$config_json"
+
+    cat > /etc/vps-henyer/xray_client.txt << CD
+PROTOCOLO=VMess+TCP
+DIRECCION=$(curl -s --max-time 4 https://ipv4.icanhazip.com 2>/dev/null || echo 'TU_IP')
+PUERTO=$port
+UUID=$uuid
+ALTERID=0
+RED=tcp
+SEGURIDAD=none
+CD
+    _xray_show_client
+}
+
+# ╔══════════════════════════════════════════════════════════╗
+#  WIZARD 3: VLESS + WebSocket + TLS
+# ╚══════════════════════════════════════════════════════════╝
+_xray_config_vless_ws_tls() {
+    clear
+    echo -e "\n  ${W}${BOLD}── Configurar VLESS + WebSocket + TLS ───────────────${NC}\n"
+    echo -e "  ${DIM}Más eficiente que VMess. Requiere dominio con TLS.${NC}\n"
+
+    local uuid; uuid=$(_gen_uuid)
+    echo -e "  UUID: ${G}${uuid}${NC}"
+    echo -e "  ¿Personalizar UUID? [s/N]: \c"; read -r ans
+    [[ "${ans,,}" == "s" ]] && { echo -e "  UUID: \c"; read -r uuid; }
+
+    local port; port=$(_ask_port "443" "Puerto de escucha")
+    echo -e "  Dominio: \c"; read -r domain
+    domain="${domain:-$(curl -s --max-time 4 https://ipv4.icanhazip.com 2>/dev/null || echo 'TU_DOMINIO')}"
+    echo -e "  Path WebSocket [/vless]: \c"; read -r ws_path
+    ws_path="${ws_path:-/vless}"
+    [[ "$ws_path" != /* ]] && ws_path="/$ws_path"
+
+    local cert_path="/etc/letsencrypt/live/${domain}/fullchain.pem"
+    local key_path="/etc/letsencrypt/live/${domain}/privkey.pem"
+
+    if [[ ! -f "$cert_path" ]]; then
+        warn "Certificado TLS no encontrado para $domain."
+        echo -e "  Ruta cert (.pem): \c"; read -r cert_path
+        echo -e "  Ruta key  (.pem): \c"; read -r key_path
+    fi
+
+    local config_json
+    config_json=$(cat << VLESSJSON
+{
+  "log": {"loglevel": "warning"},
+  "inbounds": [
+    {
+      "port": $port,
+      "protocol": "vless",
+      "settings": {
+        "clients": [{"id": "$uuid", "flow": ""}],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "ws",
+        "security": "tls",
+        "tlsSettings": {
+          "certificates": [
+            {"certificateFile": "$cert_path", "keyFile": "$key_path"}
+          ]
+        },
+        "wsSettings": {"path": "$ws_path"}
+      }
+    }
+  ],
+  "outbounds": [{"protocol": "freedom", "settings": {}}]
+}
+VLESSJSON
+)
+    info "Aplicando configuración VLESS + WS + TLS..."
+    _xray_apply_config "$config_json"
+
+    cat > /etc/vps-henyer/xray_client.txt << CD
+PROTOCOLO=VLESS+WebSocket+TLS
+DIRECCION=$domain
+PUERTO=$port
+UUID=$uuid
+RED=ws
+SEGURIDAD=tls
+PATH_WS=$ws_path
+CD
+    _xray_show_client
+}
+
+# ╔══════════════════════════════════════════════════════════╗
+#  WIZARD 4: VLESS + Reality
+# ╚══════════════════════════════════════════════════════════╝
+_xray_config_vless_reality() {
+    clear
+    echo -e "\n  ${W}${BOLD}── Configurar VLESS + Reality ────────────────────────${NC}\n"
+    echo -e "  ${DIM}El protocolo más difícil de detectar. Sin necesidad de dominio propio.${NC}"
+    echo -e "  ${DIM}Usa el certificado TLS de otro sitio legítimo como pantalla.${NC}\n"
+
+    local uuid; uuid=$(_gen_uuid)
+    echo -e "  UUID: ${G}${uuid}${NC}"
+    echo -e "  ¿Personalizar UUID? [s/N]: \c"; read -r ans
+    [[ "${ans,,}" == "s" ]] && { echo -e "  UUID: \c"; read -r uuid; }
+
+    local port; port=$(_ask_port "443" "Puerto de escucha")
+    echo -e "  Destino Reality (SNI, ej: www.microsoft.com): \c"; read -r sni
+    sni="${sni:-www.microsoft.com}"
+
+    # Generar par de claves para Reality
+    local keys_output=""
+    if _cmd_exists "xray"; then
+        keys_output=$(xray x25519 2>/dev/null || echo "")
+    fi
+
+    local priv_key pub_key short_id
+    priv_key=$(echo "$keys_output" | grep -i "private" | awk '{print $NF}' || echo "")
+    pub_key=$(echo  "$keys_output" | grep -i "public"  | awk '{print $NF}' || echo "")
+    short_id=$(cat /dev/urandom | tr -dc 'a-f0-9' | head -c 8)
+
+    if [[ -z "$priv_key" ]]; then
+        warn "No se pudieron generar claves automáticamente."
+        echo -e "  Clave privada (private key): \c"; read -r priv_key
+        echo -e "  Clave pública (public key) : \c"; read -r pub_key
+        [[ -z "$short_id" ]] && short_id="$(cat /dev/urandom | tr -dc 'a-f0-9' | head -c 8)"
+    else
+        success "Par de claves X25519 generado."
+        echo -e "  ${W}Private Key:${NC} ${DIM}$priv_key${NC}"
+        echo -e "  ${W}Public Key :${NC} ${G}$pub_key${NC}  ${DIM}← para el cliente${NC}"
+    fi
+
+    local config_json
+    config_json=$(cat << REALITYJSON
+{
+  "log": {"loglevel": "warning"},
+  "inbounds": [
+    {
+      "port": $port,
+      "protocol": "vless",
+      "settings": {
+        "clients": [{"id": "$uuid", "flow": "xtls-rprx-vision"}],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "show": false,
+          "dest": "$sni:443",
+          "xver": 0,
+          "serverNames": ["$sni"],
+          "privateKey": "$priv_key",
+          "shortIds": ["$short_id"]
+        }
+      }
+    }
+  ],
+  "outbounds": [{"protocol": "freedom", "settings": {}}]
+}
+REALITYJSON
+)
+    info "Aplicando configuración VLESS + Reality..."
+    _xray_apply_config "$config_json"
+
+    cat > /etc/vps-henyer/xray_client.txt << CD
+PROTOCOLO=VLESS+Reality
+DIRECCION=$(curl -s --max-time 4 https://ipv4.icanhazip.com 2>/dev/null || echo 'TU_IP')
+PUERTO=$port
+UUID=$uuid
+FLOW=xtls-rprx-vision
+RED=tcp
+SEGURIDAD=reality
+PUBLIC_KEY=$pub_key
+SHORT_ID=$short_id
+SNI=$sni
+FINGERPRINT=chrome
+CD
+    _xray_show_client
+}
+
+# ╔══════════════════════════════════════════════════════════╗
+#  WIZARD 5: Trojan + WebSocket + TLS
+# ╚══════════════════════════════════════════════════════════╝
+_xray_config_trojan_ws_tls() {
+    clear
+    echo -e "\n  ${W}${BOLD}── Configurar Trojan + WebSocket + TLS ──────────────${NC}\n"
+    echo -e "  ${DIM}Trojan se disfraza de tráfico HTTPS real. Muy evasivo.${NC}\n"
+
+    echo -e "  Contraseña Trojan: \c"; read -rs trojan_pass; echo
+    [[ -z "$trojan_pass" ]] && trojan_pass="$(_gen_uuid | cut -c1-16)"
+    echo -e "  Contraseña configurada: ${G}${trojan_pass}${NC}"
+
+    local port; port=$(_ask_port "443" "Puerto de escucha")
+    echo -e "  Dominio (requerido para TLS): \c"; read -r domain
+    domain="${domain:-$(curl -s --max-time 4 https://ipv4.icanhazip.com 2>/dev/null || echo 'TU_DOMINIO')}"
+    echo -e "  Path WebSocket [/trojan]: \c"; read -r ws_path
+    ws_path="${ws_path:-/trojan}"
+    [[ "$ws_path" != /* ]] && ws_path="/$ws_path"
+
+    local cert_path="/etc/letsencrypt/live/${domain}/fullchain.pem"
+    local key_path="/etc/letsencrypt/live/${domain}/privkey.pem"
+    if [[ ! -f "$cert_path" ]]; then
+        warn "Certificado no encontrado para $domain."
+        echo -e "  Ruta cert: \c"; read -r cert_path
+        echo -e "  Ruta key : \c"; read -r key_path
+    fi
+
+    local config_json
+    config_json=$(cat << TROJANJSON
+{
+  "log": {"loglevel": "warning"},
+  "inbounds": [
+    {
+      "port": $port,
+      "protocol": "trojan",
+      "settings": {
+        "clients": [{"password": "$trojan_pass"}]
+      },
+      "streamSettings": {
+        "network": "ws",
+        "security": "tls",
+        "tlsSettings": {
+          "certificates": [
+            {"certificateFile": "$cert_path", "keyFile": "$key_path"}
+          ]
+        },
+        "wsSettings": {"path": "$ws_path"}
+      }
+    }
+  ],
+  "outbounds": [{"protocol": "freedom", "settings": {}}]
+}
+TROJANJSON
+)
+    info "Aplicando configuración Trojan + WS + TLS..."
+    _xray_apply_config "$config_json"
+
+    cat > /etc/vps-henyer/xray_client.txt << CD
+PROTOCOLO=Trojan+WebSocket+TLS
+DIRECCION=$domain
+PUERTO=$port
+PASSWORD=$trojan_pass
+RED=ws
+SEGURIDAD=tls
+PATH_WS=$ws_path
+CD
+    _xray_show_client
+}
+
+# ── Mostrar datos del cliente ─────────────────────────────────
+_xray_show_client() {
+    clear
+    echo -e "\n  ${W}${BOLD}── Datos de conexión para el cliente ─────────────────${NC}\n"
+
+    local client_file="/etc/vps-henyer/xray_client.txt"
+    if [[ ! -f "$client_file" ]]; then
+        warn "No hay configuración guardada. Usa el Wizard primero."; _press_enter; return
+    fi
+
+    # Leer variables del archivo
+    # shellcheck disable=SC1090
+    source <(grep -E '^[A-Z_]+=.' "$client_file" 2>/dev/null || true)
+
+    echo -e "  ${Y}${BOLD}╔═══════════════════════════════════════════════════╗${NC}"
+    echo -e "  ${Y}║          DATOS DE CONEXIÓN — VPS-HENYER          ║${NC}"
+    echo -e "  ${Y}╠═══════════════════════════════════════════════════╣${NC}"
+    echo -e "  ${Y}║${NC}"
+    echo -e "  ${Y}║${NC}  Protocolo  : ${W}${PROTOCOLO:-N/A}${NC}"
+    echo -e "  ${Y}║${NC}  Servidor   : ${W}${DIRECCION:-N/A}${NC}"
+    echo -e "  ${Y}║${NC}  Puerto     : ${W}${PUERTO:-N/A}${NC}"
+    [[ -n "${UUID:-}" ]]        && echo -e "  ${Y}║${NC}  UUID       : ${G}${UUID}${NC}"
+    [[ -n "${PASSWORD:-}" ]]    && echo -e "  ${Y}║${NC}  Password   : ${G}${PASSWORD}${NC}"
+    [[ -n "${ALTERID:-}" ]]     && echo -e "  ${Y}║${NC}  Alter ID   : ${W}${ALTERID}${NC}"
+    echo -e "  ${Y}║${NC}  Red        : ${W}${RED:-N/A}${NC}"
+    echo -e "  ${Y}║${NC}  Seguridad  : ${W}${SEGURIDAD:-none}${NC}"
+    [[ -n "${PATH_WS:-}" ]]     && echo -e "  ${Y}║${NC}  WS Path    : ${W}${PATH_WS}${NC}"
+    [[ -n "${SNI:-}" ]]         && echo -e "  ${Y}║${NC}  SNI        : ${W}${SNI}${NC}"
+    [[ -n "${PUBLIC_KEY:-}" ]]  && echo -e "  ${Y}║${NC}  Public Key : ${G}${PUBLIC_KEY}${NC}"
+    [[ -n "${SHORT_ID:-}" ]]    && echo -e "  ${Y}║${NC}  Short ID   : ${W}${SHORT_ID}${NC}"
+    [[ -n "${FLOW:-}" ]]        && echo -e "  ${Y}║${NC}  Flow       : ${W}${FLOW}${NC}"
+    [[ -n "${FINGERPRINT:-}" ]] && echo -e "  ${Y}║${NC}  Fingerprint: ${W}${FINGERPRINT}${NC}"
+    echo -e "  ${Y}║${NC}"
+    echo -e "  ${Y}╠═══════════════════════════════════════════════════╣${NC}"
+    echo -e "  ${Y}║${NC}  ${DIM}Apps compatibles: v2rayNG, v2rayN, NekoBox,${NC}"
+    echo -e "  ${Y}║${NC}  ${DIM}Hiddify, Shadowrocket, V2Box, Streisand${NC}"
+    echo -e "  ${Y}╚═══════════════════════════════════════════════════╝${NC}"
+    echo ""
+
+    # Generar link VMess si aplica
+    if [[ "${PROTOCOLO:-}" == VMess* ]]; then
+        local vmess_json
+        vmess_json=$(python3 -c "
+import json, base64
+d = {
+    'v': '2', 'ps': 'VPS-HENYER', 'add': '${DIRECCION:-}',
+    'port': '${PUERTO:-0}', 'id': '${UUID:-}', 'aid': '${ALTERID:-0}',
+    'net': '${RED:-tcp}', 'type': 'none', 'host': '${DIRECCION:-}',
+    'path': '${PATH_WS:-/}', 'tls': '${SEGURIDAD:-none}'
+}
+print('vmess://' + base64.b64encode(json.dumps(d).encode()).decode())
+" 2>/dev/null || echo "")
+        if [[ -n "$vmess_json" ]]; then
+            echo -e "  ${C}${BOLD}Link VMess (copia en tu app):${NC}"
+            echo -e "  ${G}$vmess_json${NC}"
+            echo ""
+        fi
+    fi
+
+    # Link VLESS
+    if [[ "${PROTOCOLO:-}" == VLESS* && "${SEGURIDAD:-}" != "reality" ]]; then
+        local vless_link="vless://${UUID:-}@${DIRECCION:-}:${PUERTO:-443}?encryption=none&security=${SEGURIDAD:-none}&type=${RED:-tcp}&path=${PATH_WS:-/}#VPS-HENYER"
+        echo -e "  ${C}${BOLD}Link VLESS:${NC}"
+        echo -e "  ${G}${vless_link}${NC}"
+        echo ""
+    fi
+
+    # Link VLESS Reality
+    if [[ "${SEGURIDAD:-}" == "reality" ]]; then
+        local reality_link="vless://${UUID:-}@${DIRECCION:-}:${PUERTO:-443}?encryption=none&flow=${FLOW:-}&security=reality&sni=${SNI:-}&fp=${FINGERPRINT:-chrome}&pbk=${PUBLIC_KEY:-}&sid=${SHORT_ID:-}&type=tcp#VPS-HENYER"
+        echo -e "  ${C}${BOLD}Link VLESS+Reality:${NC}"
+        echo -e "  ${G}${reality_link}${NC}"
+        echo ""
+    fi
+
+    # Link Trojan
+    if [[ "${PROTOCOLO:-}" == Trojan* ]]; then
+        local trojan_link="trojan://${PASSWORD:-}@${DIRECCION:-}:${PUERTO:-443}?security=${SEGURIDAD:-tls}&type=${RED:-ws}&path=${PATH_WS:-/}#VPS-HENYER"
+        echo -e "  ${C}${BOLD}Link Trojan:${NC}"
+        echo -e "  ${G}${trojan_link}${NC}"
+        echo ""
+    fi
+
+    _press_enter
+}
 # ╚══════════════════════════════════════════════════════════╝
 handle_websocket() {
     while true; do
@@ -728,96 +1641,6 @@ handle_squid() {
     done
 }
 
-# ╔══════════════════════════════════════════════════════════╗
-#  XRAY / V2RAY
-# ╚══════════════════════════════════════════════════════════╝
-handle_xray() {
-    clear
-    echo -e "\n  ${W}${BOLD}── V2Ray / Xray ──────────────────────────────────────${NC}\n"
-    if ! _cmd_exists "xray"; then
-        echo -e "  Xray no instalado.  ${W}[1]${NC} Instalar  ${DIM}[0]${NC} Cancelar"
-        echo -e "  Selección: \c"; read -r o
-        [[ "$o" == "1" ]] || return
-        bash <(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh) || die "Falló instalación de Xray"
-        return
-    fi
-    echo -e "  ${W}[1]${NC} Activar/Desactivar  ${W}[2]${NC} Ver config  ${DIM}[0]${NC} Volver"
-    echo -e "  Selección: \c"; read -r o
-    case "$o" in
-        1) _toggle_service "xray" "Xray" ;;
-        2) cat /usr/local/etc/xray/config.json 2>/dev/null || warn "Config no encontrada." ;;
-        0) return ;;
-    esac
-    _press_enter
-}
-
-# ╔══════════════════════════════════════════════════════════╗
-#  TROJAN-GO
-# ╚══════════════════════════════════════════════════════════╝
-handle_trojan() {
-    clear
-    echo -e "\n  ${W}${BOLD}── Trojan-GO ─────────────────────────────────────────${NC}\n"
-    echo -e "  ${W}[1]${NC} Activar/Desactivar  ${DIM}[0]${NC} Volver"
-    echo -e "  Selección: \c"; read -r o
-    [[ "$o" == "1" ]] && _toggle_service "trojan-go" "Trojan-GO"
-    _press_enter
-}
-
-# ╔══════════════════════════════════════════════════════════╗
-#  SHADOWSOCKSR
-# ╚══════════════════════════════════════════════════════════╝
-handle_ssr() {
-    while true; do
-        clear
-        echo -e "\n  ${W}${BOLD}── ShadowsocksR ─────────────────────────────────────${NC}\n"
-
-        if ! _cmd_exists "ssserver" && ! _service_active "shadowsocksr"; then
-            echo -e "  ShadowsocksR no está instalado."
-            echo -e "  ${W}[1]${NC} Instalar ShadowsocksR  ${DIM}[0]${NC} Volver"
-            echo -e "  Selección: \c"; read -r o
-            case "$o" in
-                1)
-                    info "Instalando ShadowsocksR..."
-                    _apt_install "python3-pip"
-                    pip3 install shadowsocks 2>/dev/null || true
-                    # Intentar script de teddysun
-                    if wget -q --spider https://raw.githubusercontent.com/teddysun/shadowsocks_install/master/shadowsocksR.sh 2>/dev/null; then
-                        wget -qN https://raw.githubusercontent.com/teddysun/shadowsocks_install/master/shadowsocksR.sh
-                        chmod +x shadowsocksR.sh && bash shadowsocksR.sh
-                    else
-                        warn "Script de instalación no disponible."
-                        info "Instalando shadowsocks-libev como alternativa..."
-                        _apt_install "shadowsocks-libev"
-                    fi
-                    ;;
-                0) return ;;
-            esac
-            _press_enter; continue
-        fi
-
-        _service_active "shadowsocksr" && local st="${G}● ACTIVO${NC}" || local st="${R}● INACTIVO${NC}"
-        echo -e "  Estado: $st\n"
-        echo -e "  ${W}[1]${NC} Activar/Desactivar  ${DIM}[0]${NC} Volver"
-        echo -e "  Selección: \c"; read -r o
-        case "$o" in
-            1) _toggle_service "shadowsocksr" "ShadowsocksR"; _press_enter ;;
-            0) return ;;
-        esac
-    done
-}
-
-# ╔══════════════════════════════════════════════════════════╗
-#  PSIPHON
-# ╚══════════════════════════════════════════════════════════╝
-handle_psiphon() {
-    clear
-    echo -e "\n  ${W}${BOLD}── Psiphon ───────────────────────────────────────────${NC}\n"
-    echo -e "  ${W}[1]${NC} Activar/Desactivar  ${DIM}[0]${NC} Volver"
-    echo -e "  Selección: \c"; read -r o
-    [[ "$o" == "1" ]] && _toggle_service "psiphon" "Psiphon"
-    _press_enter
-}
-
 # ── Router principal ─────────────────────────────────────────
 PROTOCOL="${1:-}"
 case "$PROTOCOL" in
@@ -831,9 +1654,10 @@ case "$PROTOCOL" in
     websocket)   handle_websocket   ;;
     psiphon)     handle_psiphon     ;;
     http-custom) handle_http_custom ;;
+    badvpn)      handle_badvpn      ;;
     *)
         error "Protocolo no reconocido: '$PROTOCOL'"
-        echo -e "  Válidos: ssh dropbear openvpn squid xray trojan ssr websocket psiphon http-custom"
+        echo -e "  Válidos: ssh dropbear openvpn squid xray trojan ssr websocket psiphon http-custom badvpn"
         exit 1
         ;;
 esac
