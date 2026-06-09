@@ -301,6 +301,7 @@ menu_protocols() {
         printf "  ${M}│${NC}  ${W}[7]${NC} ShadowsocksR           %s\n" "$s_ssr"
         echo -e "  ${M}│${NC}  ${W}[8]${NC} WebSocket + SSL/TLS"
         echo -e "  ${M}│${NC}  ${W}[9]${NC} Psiphon"
+        echo -e "  ${M}│${NC}  ${W}[10]${NC} ${G}BadVPN-UDPGW${NC} (VoIP/Llamadas)"
         echo -e "  ${M}│${NC}"
         echo -e "  ${M}│${NC}  ${DIM}[0] Volver al menú principal${NC}"
         echo -e "  ${M}└──────────────────────────────────────────────────────┘${NC}"
@@ -318,6 +319,7 @@ menu_protocols() {
             7) _run_module "$SCRIPTS_DIR/protocols.sh" "ssr"       ;;
             8) _run_module "$SCRIPTS_DIR/protocols.sh" "websocket" ;;
             9) _run_module "$SCRIPTS_DIR/protocols.sh" "psiphon"   ;;
+            10) _run_module "$SCRIPTS_DIR/protocols.sh" "badvpn"    ;;
             0) return ;;
             *) echo -e "  ${R}Opción inválida.${NC}"; sleep 1 ;;
         esac
