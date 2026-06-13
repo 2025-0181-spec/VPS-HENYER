@@ -88,7 +88,21 @@ download_scripts() {
 
     # Archivos en /scripts
     declare -A script_files=(
-        ["scripts/protocols.sh"]="$SCRIPTS_DIR/protocols.sh"
+        ["scripts/common.sh"]="$SCRIPTS_DIR/common.sh"
+        ["scripts/ssh.sh"]="$SCRIPTS_DIR/ssh.sh"
+        ["scripts/dropbear.sh"]="$SCRIPTS_DIR/dropbear.sh"
+        ["scripts/openvpn.sh"]="$SCRIPTS_DIR/openvpn.sh"
+        ["scripts/squid.sh"]="$SCRIPTS_DIR/squid.sh"
+        ["scripts/trojan.sh"]="$SCRIPTS_DIR/trojan.sh"
+        ["scripts/ssr.sh"]="$SCRIPTS_DIR/ssr.sh"
+        ["scripts/websocket.sh"]="$SCRIPTS_DIR/websocket.sh"
+        ["scripts/http_custom.sh"]="$SCRIPTS_DIR/http_custom.sh"
+        ["scripts/psiphon.sh"]="$SCRIPTS_DIR/psiphon.sh"
+        ["scripts/badvpn.sh"]="$SCRIPTS_DIR/badvpn.sh"
+        ["scripts/v2ray.sh"]="$SCRIPTS_DIR/v2ray.sh"
+        ["scripts/ssl.sh"]="$SCRIPTS_DIR/ssl.sh"
+        ["scripts/slowdns.sh"]="$SCRIPTS_DIR/slowdns.sh"
+        ["scripts/proxy_python.sh"]="$SCRIPTS_DIR/proxy_python.sh"
         ["scripts/tools.sh"]="$SCRIPTS_DIR/tools.sh"
         ["scripts/security.sh"]="$SCRIPTS_DIR/security.sh"
     )
@@ -316,13 +330,6 @@ SECURITY
         success "security.sh generado."
     fi
 
-    if [[ ! -s "$SCRIPTS_DIR/protocols.sh" ]]; then
-        info "Copiando protocols.sh a scripts/..."
-        [[ -f "$INSTALL_DIR/protocols.sh" ]] && \
-            cp "$INSTALL_DIR/protocols.sh" "$SCRIPTS_DIR/protocols.sh" && \
-            chmod +x "$SCRIPTS_DIR/protocols.sh" && \
-            success "protocols.sh copiado a scripts/"
-    fi
 }
 
 save_version() {
@@ -367,7 +374,7 @@ print_success() {
 verify_install() {
     info "Verificando instalación..."
     local ok=true
-    local files=("$INSTALL_DIR/menu.sh" "$SCRIPTS_DIR/protocols.sh")
+    local files=("$INSTALL_DIR/menu.sh" "$SCRIPTS_DIR/common.sh" "$SCRIPTS_DIR/ssh.sh" "$SCRIPTS_DIR/badvpn.sh" "$SCRIPTS_DIR/openvpn.sh")
     for f in "${files[@]}"; do
         if [[ -f "$f" && -s "$f" ]]; then
             success "OK: $f"
