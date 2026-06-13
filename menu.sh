@@ -195,7 +195,26 @@ _do_update() {
     echo -e "\n  ${C}${BOLD}Actualizando VPS-HENYER desde GitHub...${NC}\n"
     _log "Inicio de actualización"
 
-    local scripts=("menu.sh" "scripts/protocols.sh" "scripts/tools.sh" "scripts/security.sh")
+    local scripts=(
+        "menu.sh"
+        "scripts/common.sh"
+        "scripts/ssh.sh"
+        "scripts/dropbear.sh"
+        "scripts/openvpn.sh"
+        "scripts/squid.sh"
+        "scripts/trojan.sh"
+        "scripts/ssr.sh"
+        "scripts/websocket.sh"
+        "scripts/http_custom.sh"
+        "scripts/psiphon.sh"
+        "scripts/badvpn.sh"
+        "scripts/v2ray.sh"
+        "scripts/ssl.sh"
+        "scripts/slowdns.sh"
+        "scripts/proxy_python.sh"
+        "scripts/tools.sh"
+        "scripts/security.sh"
+    )
     local failed=0
 
     for script in "${scripts[@]}"; do
@@ -273,6 +292,17 @@ _draw_header() {
     echo ""
 }
 
+# ── Estado del Proxy Python ──────────────────────────────────
+_proxy_py_status() {
+    local count; count=$(ss -tlnp 2>/dev/null | grep -c python || echo 0)
+    if (( count > 0 )); then
+        local ports; ports=$(ss -tlnp 2>/dev/null | grep python | grep -oP ':\K[0-9]+' | tr '\n' ',' | sed 's/,$//')
+        echo -e "${G}● ON${NC} ${DIM}:${ports}${NC}"
+    else
+        echo -e "${R}● OFF${NC}"
+    fi
+}
+
 # ╔══════════════════════════════════════════════════════════╗
 #  MENÚ DE PROTOCOLOS
 # ╚══════════════════════════════════════════════════════════╝
@@ -280,48 +310,107 @@ menu_protocols() {
     while true; do
         _draw_header
 
-        # Estado dinámico de cada protocolo
-        local s_ssh s_dropbear s_ovpn s_squid s_xray s_trojan s_ssr
-        s_ssh=$(_status_svc "ssh")
-        s_dropbear=$(_status_svc "dropbear")
-        s_ovpn=$(_status_svc "openvpn")
-        s_squid=$(_status_svc "squid")
-        s_xray=$(_status_svc "xray")
-        s_trojan=$(_status_svc "trojan-go")
-        s_ssr=$(_status_svc "shadowsocksr")
+        # ── Estado de cada servicio ──────────────────────────
+        local s_ssh s_dropbear s_ovpn s_squid s_xray s_trojan s_ssr s_stunnel s_slowdns s_badvpn
+        local p_ssh p_dropbear p_ovpn p_squid p_trojan p_badvpn
 
-        echo -e "  ${M}${BOLD}┌─ MÓDULO: PROTOCOLOS ─────────────────────────────────┐${NC}"
+        s_ssh=$(_status_svc "ssh")
+        p_ssh=$(grep -iE "^Port " /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}' || echo "22")
+
+        s_dropbear=$(_status_svc "dropbear")
+        p_dropbear=$(grep "^DROPBEAR_PORT" /etc/default/dropbear 2>/dev/null | cut -d= -f2 || echo "2222")
+
+        s_ovpn=$(_status_svc "openvpn")
+        p_ovpn=$(grep -E "^port " /etc/openvpn/server.conf 2>/dev/null | awk '{print $2}' || echo "1194")
+
+        s_squid=$(_status_svc "squid")
+        p_squid=$(grep -E "^http_port" /etc/squid/squid.conf 2>/dev/null | awk '{print $2}' | head -1 || echo "3128")
+
+        s_xray=$(_status_svc "xray")
+
+        s_trojan=$(_status_svc "trojan-go")
+        p_trojan=$(ss -tlnp 2>/dev/null | grep -E "trojan" | awk '{print $4}' | awk -F: '{print $NF}' | head -1)
+        [[ -z "$p_trojan" ]] && p_trojan="-"
+
+        s_ssr=$(_status_svc "shadowsocksr")
+        s_stunnel=$(_status_svc "stunnel4")
+        screen -ls 2>/dev/null | grep -q "slowdns" \
+            && s_slowdns="${G}● ON ${NC}" || s_slowdns="${R}● OFF${NC}"
+
+        pgrep -x "badvpn-udpgw" &>/dev/null \
+            && s_badvpn="${G}● ON ${NC}" || s_badvpn="${R}● OFF${NC}"
+        p_badvpn=$(grep -oP -- '--listen-addr 127\.0\.0\.1:\K[0-9]+' \
+            /etc/systemd/system/badvpn-udpgw.service 2>/dev/null || echo "7300")
+
+        # Info extra Xray
+        local xray_extra=""
+        if [[ -f /usr/local/etc/xray/config.json ]]; then
+            local xp; xp=$(python3 -c "
+import json
+try:
+    d=json.load(open('/usr/local/etc/xray/config.json'))
+    print(d['inbounds'][0].get('port','?'))
+except: print('?')
+" 2>/dev/null || echo "?")
+            xray_extra=" ${DIM}:${NC}${W}${xp}${NC}"
+        fi
+        if [[ -f /etc/vps-henyer/xray_users.json ]]; then
+            local xu; xu=$(python3 -c "
+import json
+try:
+    d=json.load(open('/etc/vps-henyer/xray_users.json'))
+    a=sum(1 for u in d.get('users',[]) if not u.get('locked',False))
+    print(f' {a}usr')
+except: print('')
+" 2>/dev/null || echo "")
+            xray_extra="${xray_extra}${G}${xu}${NC}"
+        fi
+
+        echo -e "  ${M}${BOLD}┌─ PROTOCOLOS ─────────────────────────────────────────┐${NC}"
         echo -e "  ${M}│${NC}"
-        printf "  ${M}│${NC}  ${W}[1]${NC} OpenSSH / SSH          %s\n" "$s_ssh"
-        printf "  ${M}│${NC}  ${W}[2]${NC} Dropbear               %s\n" "$s_dropbear"
-        printf "  ${M}│${NC}  ${W}[3]${NC} OpenVPN                %s\n" "$s_ovpn"
-        printf "  ${M}│${NC}  ${W}[4]${NC} Squid Proxy            %s\n" "$s_squid"
-        printf "  ${M}│${NC}  ${W}[5]${NC} V2Ray / Xray           %s\n" "$s_xray"
-        printf "  ${M}│${NC}  ${W}[6]${NC} Trojan-GO              %s\n" "$s_trojan"
-        printf "  ${M}│${NC}  ${W}[7]${NC} ShadowsocksR           %s\n" "$s_ssr"
-        echo -e "  ${M}│${NC}  ${W}[8]${NC} WebSocket + SSL/TLS"
-        echo -e "  ${M}│${NC}  ${W}[9]${NC} Psiphon"
-        echo -e "  ${M}│${NC}  ${W}[10]${NC} ${G}BadVPN-UDPGW${NC} (VoIP/Llamadas)"
+        echo -e "  ${M}│${NC}  ${Y}── SSH / Tuneles ─────────────────────────${NC}"
+        echo -e "  ${M}│${NC}  ${W}[1]${NC}  OpenSSH              $s_ssh ${DIM}:${p_ssh}${NC}"
+        echo -e "  ${M}│${NC}  ${W}[2]${NC}  Dropbear             $s_dropbear ${DIM}:${p_dropbear}${NC}"
+        echo -e "  ${M}│${NC}  ${W}[3]${NC}  SSL / Stunnel4       $s_stunnel"
+        echo -e "  ${M}│${NC}  ${W}[4]${NC}  SlowDNS              $s_slowdns"
         echo -e "  ${M}│${NC}"
-        echo -e "  ${M}│${NC}  ${DIM}[0] Volver al menú principal${NC}"
+        echo -e "  ${M}│${NC}  ${Y}── VPN / Proxy ───────────────────────────${NC}"
+        echo -e "  ${M}│${NC}  ${W}[5]${NC}  OpenVPN              $s_ovpn ${DIM}:${p_ovpn}${NC}"
+        echo -e "  ${M}│${NC}  ${W}[6]${NC}  Squid Proxy          $s_squid ${DIM}:${p_squid}${NC}"
+        echo -e "  ${M}│${NC}  ${W}[7]${NC}  ShadowsocksR         $s_ssr"
+        echo -e "  ${M}│${NC}  ${W}[8]${NC}  Trojan-GO            $s_trojan ${DIM}:${p_trojan}${NC}"
+        echo -e "  ${M}│${NC}"
+        echo -e "  ${M}│${NC}  ${Y}── V2Ray / Xray ──────────────────────────${NC}"
+        echo -e "  ${M}│${NC}  ${W}[9]${NC}  V2Ray / Xray         $s_xray$xray_extra"
+        echo -e "  ${M}│${NC}"
+        echo -e "  ${M}│${NC}  ${Y}── UDP / Llamadas ────────────────────────${NC}"
+        echo -e "  ${M}│${NC}  ${W}[10]${NC} BadVPN-UDPGW         $s_badvpn ${DIM}:${p_badvpn}${NC}"
+        echo -e "  ${M}│${NC}"
+        echo -e "  ${M}│${NC}  ${Y}── Proxy / HTTP ──────────────────────────${NC}"
+        echo -e "  ${M}│${NC}  ${W}[11]${NC} Proxy Python         $(_proxy_py_status)"
+        echo -e "  ${M}│${NC}  ${W}[12]${NC} HTTP Custom/Injector"
+        echo -e "  ${M}│${NC}"
+        echo -e "  ${M}│${NC}  ${DIM}[0]  Volver al menú principal${NC}"
         echo -e "  ${M}└──────────────────────────────────────────────────────┘${NC}"
         echo ""
         echo -e "  Selección: \c"
         read -r opt
 
         case "$opt" in
-            1) _run_module "$SCRIPTS_DIR/protocols.sh" "ssh"       ;;
-            2) _run_module "$SCRIPTS_DIR/protocols.sh" "dropbear"  ;;
-            3) _run_module "$SCRIPTS_DIR/protocols.sh" "openvpn"   ;;
-            4) _run_module "$SCRIPTS_DIR/protocols.sh" "squid"     ;;
-            5) _run_module "$SCRIPTS_DIR/protocols.sh" "xray"      ;;
-            6) _run_module "$SCRIPTS_DIR/protocols.sh" "trojan"    ;;
-            7) _run_module "$SCRIPTS_DIR/protocols.sh" "ssr"       ;;
-            8) _run_module "$SCRIPTS_DIR/protocols.sh" "websocket" ;;
-            9) _run_module "$SCRIPTS_DIR/protocols.sh" "psiphon"   ;;
-            10) _run_module "$SCRIPTS_DIR/protocols.sh" "badvpn"    ;;
-            0) return ;;
-            *) echo -e "  ${R}Opción inválida.${NC}"; sleep 1 ;;
+            1)  _run_module "$SCRIPTS_DIR/ssh.sh"          ;;
+            2)  _run_module "$SCRIPTS_DIR/dropbear.sh"     ;;
+            3)  _run_module "$SCRIPTS_DIR/ssl.sh"          ;;
+            4)  _run_module "$SCRIPTS_DIR/slowdns.sh"      ;;
+            5)  _run_module "$SCRIPTS_DIR/openvpn.sh"      ;;
+            6)  _run_module "$SCRIPTS_DIR/squid.sh"        ;;
+            7)  _run_module "$SCRIPTS_DIR/ssr.sh"          ;;
+            8)  _run_module "$SCRIPTS_DIR/trojan.sh"       ;;
+            9)  _run_module "$SCRIPTS_DIR/v2ray.sh"        ;;
+            10) _run_module "$SCRIPTS_DIR/badvpn.sh"       ;;
+            11) _run_module "$SCRIPTS_DIR/proxy_python.sh" ;;
+            12) _run_module "$SCRIPTS_DIR/http_custom.sh"  ;;
+            0)  return ;;
+            *)  echo -e "  ${R}Opción inválida.${NC}"; sleep 1 ;;
         esac
     done
 }
