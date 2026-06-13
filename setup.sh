@@ -45,7 +45,7 @@ check_os() {
 
 check_internet() {
     info "Verificando conexión a internet..."
-    curl -s --max-time 5 https://github.com > /dev/null 2>&1 || die "Sin acceso a internet o GitHub no responde."
+    curl -s --max-time 30 -o /dev/null https://github.com || die "Sin acceso a internet o GitHub no responde."
     success "Conexión a internet OK"
 }
 
